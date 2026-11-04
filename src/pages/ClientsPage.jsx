@@ -147,7 +147,7 @@ export default function ClientsPage({ company = {} }) {
   }
 
   return (
-    <section className="space-y-5">
+    <section className="erp-module space-y-5">
       <input
         ref={fileInput}
         type="file"
@@ -156,7 +156,7 @@ export default function ClientsPage({ company = {} }) {
         className="hidden"
         onChange={uploadAttachments}
       />
-      <header className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-6">
+      <header className="erp-page-header flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-6">
         <div>
           <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-indigo-700"><Users size={16} /> Répertoire clients</div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">Clients</h1>

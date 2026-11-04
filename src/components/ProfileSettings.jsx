@@ -149,16 +149,16 @@ export default function ProfileSettings({
   }
 
   return (
-    <section className="mx-auto max-w-[1180px] space-y-6">
-      <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-[#1e438e] via-[#2859c5] to-[#477ee3] p-6 text-white shadow-lg shadow-blue-900/10 md:p-8">
+    <section className="erp-module mx-auto max-w-[1180px] space-y-6">
+      <div className="erp-page-header flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 text-slate-900 shadow-sm md:p-8">
         <div className="flex items-start gap-4">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/20">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
             <Building2 size={23} />
           </div>
           <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.17em] text-blue-100">Configuration de l’espace</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.17em] text-indigo-600">Configuration de l’espace</p>
             <h2 className="mt-1 text-xl font-bold tracking-tight md:text-2xl">Identité de l’entreprise</h2>
-            <p className="mt-2 max-w-2xl text-xs leading-5 text-blue-100 md:text-sm">Les coordonnées enregistrées dans Firestore sont réutilisées sur les devis, factures, contrats et fiches PDF.</p>
+            <p className="mt-2 max-w-2xl text-xs leading-5 text-slate-500 md:text-sm">Les coordonnées enregistrées dans Firestore sont réutilisées sur les devis, factures, contrats et fiches PDF.</p>
           </div>
         </div>
       </div>

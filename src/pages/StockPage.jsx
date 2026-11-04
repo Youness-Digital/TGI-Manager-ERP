@@ -173,8 +173,8 @@ export default function StockPage({ company = {} }) {
   const lowStockCount = items.filter((item) => Number(item.quantity) < 5).length;
 
   return (
-    <section className="space-y-5">
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+    <section className="erp-module space-y-5">
+      <div className="erp-page-header flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-brand">Achats & logistique</p>
           <h2 className="mt-1 text-xl font-bold tracking-tight text-ink">Gestion du stock</h2>

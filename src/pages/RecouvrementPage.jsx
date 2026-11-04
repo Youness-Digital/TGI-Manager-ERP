@@ -274,9 +274,9 @@ export default function RecouvrementPage({ company = {}, profiles = {} }) {
   }
 
   return (
-    <section className="space-y-5">
+    <section className="erp-module space-y-5">
       <input ref={proofInput} type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" onChange={attachPaymentProof} className="hidden" />
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+      <div className="erp-page-header flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-brand">Suivi financier</p>
           <h2 className="mt-1 text-xl font-bold tracking-tight text-ink">Recouvrement & paiements</h2>

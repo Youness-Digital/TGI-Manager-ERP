@@ -156,8 +156,8 @@ export default function EquipePage({ company = {} }) {
   }
 
   return (
-    <section className="space-y-5">
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+    <section className="erp-module space-y-5">
+      <div className="erp-page-header flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-brand">Ressources humaines</p><h2 className="mt-1 text-xl font-bold tracking-tight text-ink">Équipe technique</h2><p className="mt-1 text-xs text-muted">Gérez les techniciens disponibles pour les interventions.</p></div>
         <div className="flex flex-col gap-2 sm:flex-row">
           <button onClick={exportTeam} disabled={loading || !filteredMembers.length} className="inline-flex items-center justify-center gap-2 rounded-xl border border-line bg-white px-4 py-3 text-xs font-bold text-slate-700 shadow-sm transition hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-50"><FileDown size={15} /> Exporter l’équipe</button>
