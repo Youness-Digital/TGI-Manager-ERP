@@ -106,8 +106,8 @@ function addLogo(doc, company, x, y) {
       if (!Number.isFinite(sourceWidth) || !Number.isFinite(sourceHeight) || sourceWidth <= 0 || sourceHeight <= 0) {
         throw new TypeError("Dimensions du logo invalides.");
       }
-      const maxWidth = 22;
-      const maxHeight = 16;
+      const maxWidth = 24;
+      const maxHeight = 19;
       const scale = Math.min(maxWidth / sourceWidth, maxHeight / sourceHeight);
       const width = sourceWidth * scale;
       const height = sourceHeight * scale;
@@ -119,32 +119,36 @@ function addLogo(doc, company, x, y) {
   }
 
   doc.setDrawColor(213, 221, 233);
-  doc.roundedRect(x, y, 22, 16, 2, 2, "S");
+  doc.roundedRect(x, y, 24, 19, 2, 2, "S");
   doc.setTextColor(150, 161, 179);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(6);
-  doc.text("LOGO", x + 11, y + 9, { align: "center" });
+  doc.text("LOGO", x + 12, y + 10, { align: "center" });
 }
 
 function drawHeader(doc, { title, reference, issueDate, company }) {
   const pageWidth = doc.internal.pageSize.getWidth();
   const margin = LAYOUT.margin;
   const right = pageWidth - margin;
-  const companyLeft = margin + 27;
-  const rightWidth = 77;
+  const companyLeft = margin + 29;
+  const rightWidth = 78;
 
+  doc.setFillColor(18, 35, 60);
+  doc.rect(0, 0, pageWidth, 6, "F");
+  doc.setFillColor(45, 114, 213);
+  doc.rect(margin, 6, 25, 0.9, "F");
   addLogo(doc, company, margin, 11);
 
   doc.setTextColor(23, 36, 58);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(9.5);
+  doc.setFontSize(10);
   if (company.name || company.legalName) {
-    doc.text(doc.splitTextToSize(text(company.name || company.legalName), 75).slice(0, 2), companyLeft, 15);
+    doc.text(doc.splitTextToSize(text(company.name || company.legalName), 73).slice(0, 2), companyLeft, 15);
   }
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(7.5);
+  doc.setFontSize(7);
   doc.setTextColor(113, 128, 150);
-  if (company.subtitle) doc.text(doc.splitTextToSize(text(company.subtitle), 75).slice(0, 2), companyLeft, 23);
+  if (company.subtitle) doc.text(doc.splitTextToSize(text(company.subtitle), 73).slice(0, 2), companyLeft, 23);
 
   const contacts = [
     company.address,
@@ -154,35 +158,52 @@ function drawHeader(doc, { title, reference, issueDate, company }) {
     company.vatNumber && `TVA ${company.vatNumber}`,
     company.website,
   ].filter(Boolean);
-  doc.setFontSize(6.6);
+  doc.setFontSize(6.5);
   doc.setTextColor(70, 84, 106);
   let contactY = 12;
   contacts.forEach((value) => {
-    const lines = doc.splitTextToSize(text(value), rightWidth).slice(0, 2);
-    if (contactY + lines.length * 3.2 <= 32) {
+    const lines = doc.splitTextToSize(text(value), rightWidth).slice(0, 1);
+    if (contactY + lines.length * 3.1 <= 32) {
       doc.text(lines, right, contactY, { align: "right" });
-      contactY += lines.length * 3.2;
+      contactY += lines.length * 3.1;
     }
   });
 
-  doc.setDrawColor(225, 231, 240);
-  doc.setLineWidth(0.35);
+  doc.setDrawColor(224, 231, 240);
+  doc.setLineWidth(0.4);
   doc.line(margin, 34, right, 34);
-  doc.setFillColor(241, 245, 249);
-  doc.setDrawColor(215, 225, 237);
-  doc.roundedRect(margin, 37, pageWidth - margin * 2, 13, 2, 2, "FD");
+  doc.setFillColor(246, 249, 253);
+  doc.setDrawColor(225, 233, 243);
+  doc.roundedRect(margin, 37, pageWidth - margin * 2, 17, 2, 2, "FD");
+  doc.setFillColor(45, 114, 213);
+  doc.roundedRect(margin, 37, 2, 17, 1, 1, "F");
   doc.setTextColor(23, 36, 58);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
-  const titleLines = doc.splitTextToSize(text(title, "DOCUMENT").toLocaleUpperCase("fr-FR"), pageWidth - margin * 2 - 10);
-  doc.text(titleLines.slice(0, 1), pageWidth / 2, 45, { align: "center" });
+  doc.setFontSize(10.5);
+  const titleLines = doc.splitTextToSize(text(title, "DOCUMENT").toLocaleUpperCase("fr-FR"), 108).slice(0, 2);
+  doc.text(titleLines, margin + 7, titleLines.length > 1 ? 43 : 46);
+  doc.setDrawColor(218, 227, 238);
+  doc.setLineWidth(0.35);
+  doc.line(pageWidth - margin - 57, 40, pageWidth - margin - 57, 51);
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(7.5);
+  doc.setFontSize(6.8);
   doc.setTextColor(80, 95, 116);
-  const details = [reference && `Référence : ${reference}`, issueDate && `Émis le : ${formatDate(issueDate)}`]
-    .filter(Boolean)
-    .join("     ·     ");
-  if (details) doc.text(details, pageWidth / 2, 50, { align: "center" });
+  if (reference) {
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(45, 75, 115);
+    doc.text("RÉFÉRENCE", right - 54, 43);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(80, 95, 116);
+    doc.text(doc.splitTextToSize(text(reference), 53).slice(0, 1), right - 54, 47);
+  }
+  if (issueDate) {
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(45, 75, 115);
+    doc.text("ÉMIS LE", right, 43, { align: "right" });
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(80, 95, 116);
+    doc.text(formatDate(issueDate), right, 47, { align: "right" });
+  }
 
   return LAYOUT.headerHeight;
 }
@@ -249,6 +270,8 @@ function drawFooter(doc, { reference, companyName, signatures, pageNumber, pageC
   const margin = LAYOUT.margin;
   const footerTop = pageHeight - 33;
 
+  doc.setFillColor(247, 249, 252);
+  doc.rect(0, pageHeight - 11, pageWidth, 11, "F");
   doc.setDrawColor(225, 231, 240);
   doc.setLineWidth(0.35);
   doc.line(margin, footerTop - 4, pageWidth - margin, footerTop - 4);
@@ -281,8 +304,10 @@ function drawFooter(doc, { reference, companyName, signatures, pageNumber, pageC
   doc.setFontSize(6.5);
   doc.setTextColor(130, 142, 160);
   const footerText = `${text(companyName)}${companyName ? " · " : ""}${text(reference, "Document")}`;
-  doc.text(doc.splitTextToSize(footerText, pageWidth - margin * 2 - 30).slice(0, 1), margin, pageHeight - 6);
-  doc.text(`Page ${pageNumber} / ${pageCount}`, pageWidth - margin, pageHeight - 6, { align: "right" });
+  doc.text(doc.splitTextToSize(footerText, pageWidth - margin * 2 - 34).slice(0, 1), margin, pageHeight - 6);
+  doc.setTextColor(53, 78, 111);
+  doc.setFont("helvetica", "bold");
+  doc.text(`${pageNumber} / ${pageCount}`, pageWidth - margin, pageHeight - 6, { align: "right" });
 }
 
 function normalizeOptions(record, options = {}) {
@@ -326,7 +351,7 @@ function createReport({ title, reference, issueDate, company, signatures, filena
   } = {}) {
     if (sectionTitle) {
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(8.5);
+      doc.setFontSize(8.8);
       doc.setTextColor(23, 36, 58);
       const titleLines = doc.splitTextToSize(text(sectionTitle), tableWidth);
       const titleHeight = titleLines.length * 4 + 2;
@@ -334,7 +359,9 @@ function createReport({ title, reference, issueDate, company, signatures, filena
         doc.addPage();
         cursorY = LAYOUT.headerHeight;
       }
-      doc.text(titleLines, margin, cursorY);
+      doc.setFillColor(45, 114, 213);
+      doc.roundedRect(margin, cursorY - 2.8, 1.3, 5, 0.6, 0.6, "F");
+      doc.text(titleLines, margin + 4, cursorY);
       cursorY += titleHeight;
     }
 
@@ -377,8 +404,8 @@ function createReport({ title, reference, issueDate, company, signatures, filena
       columnStyles,
       styles: {
         font: "helvetica",
-        fontSize: 9,
-        cellPadding: { top: 2.7, right: 2.4, bottom: 2.7, left: 2.4 },
+        fontSize: 8.5,
+        cellPadding: { top: 2.9, right: 2.6, bottom: 2.9, left: 2.6 },
         overflow: "linebreak",
         cellWidth: "wrap",
         lineWidth: 0.2,
@@ -387,17 +414,24 @@ function createReport({ title, reference, issueDate, company, signatures, filena
         valign: "middle",
       },
       headStyles: {
-        fillColor: [41, 128, 185],
+        fillColor: [27, 55, 91],
         textColor: [255, 255, 255],
-        fontSize: 10,
+        fontSize: 8.5,
         fontStyle: "bold",
-        lineColor: [41, 128, 185],
+        lineColor: [27, 55, 91],
       },
-      alternateRowStyles: { fillColor: [245, 247, 250] },
+      alternateRowStyles: { fillColor: [246, 249, 253] },
       theme: "grid",
       rowPageBreak: "auto",
       pageBreak: "auto",
       showHead: "everyPage",
+      didParseCell: (data) => {
+        if (alignRight && data.section === "body" && data.row.index === rows.length - 1) {
+          data.cell.styles.fillColor = [232, 241, 252];
+          data.cell.styles.textColor = [23, 50, 84];
+          data.cell.styles.fontStyle = "bold";
+        }
+      },
       didDrawPage: (data) => {
         drawPageChrome(data.pageNumber, doc.internal.getNumberOfPages());
       },
