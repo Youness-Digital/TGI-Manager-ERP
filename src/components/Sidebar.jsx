@@ -27,10 +27,14 @@ export const NAV_LINKS = [
 export default function Sidebar({ activePage, onNavigate, profiles, company }) {
   const director = profiles?.director || { name: "Directeur", photo: "" };
   const salesperson = profiles?.salesperson || { name: "Commercial", photo: "" };
+  const teamMembers = [
+    { id: "director", person: director },
+    { id: "salesperson", person: salesperson },
+  ];
 
   return (
-    <aside className="fixed inset-y-0 left-0 z-20 hidden w-[260px] flex-col border-r border-white/[0.07] bg-[#10172a] px-4 py-5 text-white lg:flex">
-      <button onClick={() => onNavigate("dashboard")} className="mb-8 flex items-center gap-3 rounded-xl px-2 py-1 text-left transition-all duration-200 hover:bg-white/[0.04]">
+    <aside className="scrollbar-thin relative z-20 hidden h-screen min-h-0 w-[260px] shrink-0 flex-col overflow-y-auto overscroll-contain border-r border-white/[0.07] bg-[#10172a] px-4 py-5 pb-8 text-white lg:flex">
+      <button onClick={() => onNavigate("dashboard")} className="mb-8 flex shrink-0 items-center gap-3 rounded-xl px-2 py-1 text-left transition-all duration-200 hover:bg-white/[0.04]">
         <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-black shadow-lg shadow-black/20">
           <CompanyLogo src={company?.logoUrl} className="h-full w-full" />
         </div>
@@ -40,8 +44,8 @@ export default function Sidebar({ activePage, onNavigate, profiles, company }) {
         </div>
       </button>
 
-      <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Espace de travail</p>
-      <nav aria-label="Navigation principale" className="space-y-1">
+      <p className="mb-3 shrink-0 px-3 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Espace de travail</p>
+      <nav aria-label="Navigation principale" className="shrink-0 space-y-1">
         {NAV_LINKS.map(({ id, label, Icon }) => {
           const active = activePage === id;
           return (
@@ -63,16 +67,16 @@ export default function Sidebar({ activePage, onNavigate, profiles, company }) {
         })}
       </nav>
 
-      <div className="mt-auto rounded-xl border border-white/[0.08] bg-white/[0.04] p-4">
+      <div className="mt-auto shrink-0 rounded-xl border border-white/[0.08] bg-white/[0.04] p-4">
         <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">Équipe référente</p>
         <div className="flex -space-x-2">
-          {[director, salesperson].map((person, index) => (
-            <div key={index} className="h-8 w-8 overflow-hidden rounded-full border-2 border-[#151d31] bg-slate-700">
+          {teamMembers.map(({ id, person }) => (
+            <div key={id} className="h-8 w-8 overflow-hidden rounded-full border-2 border-[#151d31] bg-slate-700">
               {person.photo ? (
                 <img src={person.photo} alt={person.name} className="h-full w-full object-cover" />
               ) : (
                 <div className="flex h-full w-full items-center justify-center text-[10px] font-bold text-slate-300">
-                  {person.name?.slice(0, 1) || (index === 0 ? "D" : "C")}
+                  {person.name?.slice(0, 1) || (id === "director" ? "D" : "C")}
                 </div>
               )}
             </div>

@@ -169,9 +169,9 @@ export default function App() {
   if (!user) return <LoginPage initialError={authError} />;
 
   return (
-    <div className="min-h-screen bg-[#f6f7fb] text-slate-800">
+    <div className="flex h-screen overflow-hidden bg-[#f6f7fb] text-slate-800">
       <Sidebar activePage={activePage} onNavigate={setActivePage} profiles={profiles} company={company} />
-      <div className="min-h-screen lg:pl-[260px]">
+      <div className="flex h-screen min-w-0 flex-1 flex-col overflow-y-auto overscroll-contain">
         <Topbar activePage={activePage} onNavigate={setActivePage} profiles={profiles} user={user} onSignOut={handleSignOut} company={company} />
         {signOutError && <p role="alert" className="mx-4 mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 md:mx-8">{signOutError}</p>}
         <nav aria-label="Navigation principale" className="sticky top-[76px] z-[9] flex gap-1 overflow-x-auto border-b border-slate-200/80 bg-white/95 px-3 py-2 shadow-sm backdrop-blur lg:hidden">
@@ -186,7 +186,7 @@ export default function App() {
             </button>
           ))}
         </nav>
-        <main className="mx-auto max-w-[1450px] px-4 py-5 md:px-8 md:py-7">
+        <main className="mx-auto w-full max-w-[1450px] flex-1 px-4 py-5 md:px-8 md:py-7">
           <div key={activePage} className="page-enter">
           {activePage === "dashboard" && <Dashboard onNavigate={setActivePage} />}
           {activePage === "clients" && (
