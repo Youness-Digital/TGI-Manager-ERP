@@ -31,6 +31,89 @@ button {
   cursor: pointer;
 }
 
+button,
+tbody tr {
+  transition: color, background-color, border-color, box-shadow, opacity, transform 200ms ease;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+.page-enter {
+  animation: page-enter 420ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+
+.motion-rise {
+  animation: motion-rise 680ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+
+.motion-delay-1 {
+  animation-delay: 100ms;
+}
+
+.motion-delay-2 {
+  animation-delay: 200ms;
+}
+
+.motion-delay-3 {
+  animation-delay: 300ms;
+}
+
+.motion-float {
+  animation: motion-float 5s ease-in-out infinite;
+}
+
+.motion-float-delayed {
+  animation: motion-float 6s ease-in-out 900ms infinite;
+}
+
+.motion-glow {
+  animation: motion-glow 4s ease-in-out infinite;
+}
+
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes motion-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes motion-float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-9px);
+  }
+}
+
+@keyframes motion-glow {
+  0%, 100% {
+    opacity: 0.48;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 0.82;
+    transform: scale(1.05);
+  }
+}
+
 ::selection {
   background: #dce8ff;
 }
@@ -38,4 +121,15 @@ button {
 .scrollbar-thin {
   scrollbar-width: thin;
   scrollbar-color: #d4dceb transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

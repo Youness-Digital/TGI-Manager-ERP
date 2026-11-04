@@ -1,10 +1,13 @@
 import { lazy, Suspense, useEffect, useState } from "react";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
 import DocumentForm from "./components/DocumentForm";
+import LoginPage from "./components/LoginPage";
 import ProfileSettings from "./components/ProfileSettings";
 import Dashboard from "./pages/Dashboard";
 import { NAV_LINKS } from "./components/Sidebar";
+import { auth } from "./firebase";
 import { companySettingsService } from "./services/dbService";
 
 const ClientsPage = lazy(() => import("./pages/ClientsPage"));
@@ -55,12 +58,33 @@ function loadSettings() {
 }
 
 export default function App() {
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState("");
+  const [signOutError, setSignOutError] = useState("");
   const [activePage, setActivePage] = useState("dashboard");
   const [profiles, setProfiles] = useState(() => loadSettings().profiles);
   const [company, setCompany] = useState(EMPTY_COMPANY);
   const [companyLoading, setCompanyLoading] = useState(true);
   const [companyError, setCompanyError] = useState("");
   const [savingCompany, setSavingCompany] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(
+      auth,
+      (nextUser) => {
+        setUser(nextUser);
+        setAuthError("");
+        setAuthLoading(false);
+      },
+      (error) => {
+        console.error("Impossible de restaurer la session Firebase.", error);
+        setAuthError("La session n’a pas pu être vérifiée. Rechargez la page ou reconnectez-vous.");
+        setAuthLoading(false);
+      },
+    );
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     try {
@@ -71,7 +95,14 @@ export default function App() {
   }, [profiles]);
 
   useEffect(() => {
+    if (!user) {
+      setCompanyLoading(false);
+      return undefined;
+    }
+
     let active = true;
+    setCompanyLoading(true);
+    setCompanyError("");
     const unsubscribe = companySettingsService.subscribe(
       (record) => {
         if (!active) return;
@@ -91,7 +122,7 @@ export default function App() {
       active = false;
       unsubscribe();
     };
-  }, []);
+  }, [user]);
 
   async function saveCompanySettings(nextCompany) {
     setSavingCompany(true);
@@ -108,24 +139,53 @@ export default function App() {
     }
   }
 
+  async function handleSignOut() {
+    setSignOutError("");
+    try {
+      await signOut(auth);
+      setActivePage("dashboard");
+    } catch (error) {
+      console.error("La déconnexion Firebase a échoué.", error);
+      setSignOutError("La déconnexion a échoué. Vérifiez votre connexion puis réessayez.");
+    }
+  }
+
+  if (authLoading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+        <div role="status" className="flex flex-col items-center gap-4 rounded-xl border border-slate-200 bg-white px-10 py-8 text-center shadow-sm">
+          <span className="relative flex h-12 w-12 items-center justify-center">
+            <span className="absolute inset-0 animate-spin rounded-full border-4 border-indigo-100 border-t-indigo-600" />
+            <span className="text-xs font-extrabold text-indigo-700">TGI</span>
+          </span>
+          <span className="text-sm font-medium text-slate-600">Restauration de votre session…</span>
+        </div>
+      </main>
+    );
+  }
+
+  if (!user) return <LoginPage initialError={authError} />;
+
   return (
-    <div className="min-h-screen bg-canvas">
-      <Sidebar activePage={activePage} onNavigate={setActivePage} profiles={profiles} />
-      <div className="min-h-screen lg:pl-[248px]">
-        <Topbar activePage={activePage} onNavigate={setActivePage} profiles={profiles} />
-        <nav className="flex gap-1 overflow-x-auto border-b border-line bg-white px-4 py-2 lg:hidden">
+    <div className="min-h-screen bg-[#f6f7fb] text-slate-800">
+      <Sidebar activePage={activePage} onNavigate={setActivePage} profiles={profiles} company={company} />
+      <div className="min-h-screen lg:pl-[260px]">
+        <Topbar activePage={activePage} onNavigate={setActivePage} profiles={profiles} user={user} onSignOut={handleSignOut} company={company} />
+        {signOutError && <p role="alert" className="mx-4 mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 md:mx-8">{signOutError}</p>}
+        <nav aria-label="Navigation principale" className="sticky top-[76px] z-[9] flex gap-1 overflow-x-auto border-b border-slate-200/80 bg-white/95 px-3 py-2 shadow-sm backdrop-blur lg:hidden">
           {NAV_LINKS.map(({ id, label, Icon }) => (
             <button
               key={id}
               onClick={() => setActivePage(id)}
               aria-current={activePage === id ? "page" : undefined}
-              className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold ${activePage === id ? "bg-blue-50 text-brand" : "text-slate-500"}`}
+              className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold transition-all duration-200 ${activePage === id ? "bg-indigo-600 text-white shadow-sm shadow-indigo-200" : "text-slate-500 hover:bg-slate-100 hover:text-slate-800"}`}
             >
               <Icon size={14} />{label}
             </button>
           ))}
         </nav>
-        <main className="mx-auto max-w-[1450px] px-4 py-6 md:px-8 md:py-8">
+        <main className="mx-auto max-w-[1450px] px-4 py-5 md:px-8 md:py-7">
+          <div key={activePage} className="page-enter">
           {activePage === "dashboard" && <Dashboard onNavigate={setActivePage} />}
           {activePage === "clients" && (
             <Suspense fallback={<div className="flex min-h-56 items-center justify-center text-sm text-muted">Chargement du module clients…</div>}>
@@ -175,6 +235,7 @@ export default function App() {
               onSaveCompany={saveCompanySettings}
             />
           )}
+          </div>
         </main>
       </div>
     </div>

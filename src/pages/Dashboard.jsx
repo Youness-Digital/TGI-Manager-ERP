@@ -182,7 +182,7 @@ function Trend({ trend }) {
 
 function StatCard({ label, value, note, trend, Icon, iconStyle, gradient, onClick }) {
   return (
-    <article className={`group relative overflow-hidden rounded-2xl border border-slate-100 bg-white p-5 shadow-lg shadow-slate-200/50 transition duration-200 hover:-translate-y-0.5 hover:shadow-xl ${onClick ? "cursor-pointer" : ""}`}>
+    <article className={`group relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/50 transition duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md ${onClick ? "cursor-pointer" : ""}`}>
       <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${gradient}`} />
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -209,7 +209,7 @@ function QuickAction({ label, description, Icon, style, onClick }) {
     <button
       type="button"
       onClick={onClick}
-      className="group flex min-w-0 items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-100"
+      className="group flex min-w-0 items-center gap-3 rounded-xl border border-slate-200/80 bg-white px-4 py-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md focus:outline-none focus-visible:ring-4 focus-visible:ring-indigo-100"
     >
       <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition group-hover:scale-105 ${style}`}><Icon size={19} /></span>
       <span className="min-w-0">
@@ -239,8 +239,8 @@ function PanelTitle({ eyebrow, title, action, onAction }) {
 
 function DashboardLoader() {
   return (
-    <div role="status" aria-live="polite" className="flex min-h-72 flex-col items-center justify-center gap-3 rounded-2xl border border-slate-100 bg-white shadow-lg shadow-slate-200/40">
-      <LoaderCircle size={30} className="animate-spin text-blue-600" />
+    <div role="status" aria-live="polite" className="flex min-h-72 flex-col items-center justify-center gap-3 rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+      <LoaderCircle size={30} className="animate-spin text-indigo-600" />
       <p className="text-sm font-medium text-slate-600">Chargement de votre activité…</p>
       <p className="text-xs text-slate-400">Synchronisation des données en temps réel</p>
     </div>
@@ -337,13 +337,13 @@ export default function Dashboard({ onNavigate = () => {} }) {
 
   return (
     <div className="space-y-6">
-      <section className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-blue-800 via-blue-700 to-indigo-600 px-6 py-7 text-white shadow-lg shadow-blue-900/10 md:px-8">
+      <section className="motion-rise relative overflow-hidden rounded-2xl border border-slate-800 bg-[linear-gradient(115deg,#111827_0%,#172554_58%,#312e81_100%)] px-6 py-7 text-white shadow-lg shadow-slate-900/10 md:px-8">
         <div className="relative z-10 max-w-2xl">
-          <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-blue-100 ring-1 ring-white/15">
+          <div className="inline-flex items-center gap-2 rounded-full bg-white/[0.08] px-3 py-1 text-xs font-medium text-indigo-100 ring-1 ring-white/15">
             <CalendarDays size={14} /> {today}
           </div>
           <h1 className="mt-4 text-2xl font-bold tracking-tight md:text-3xl">Vue d’ensemble</h1>
-          <p className="mt-2 max-w-xl text-sm leading-6 text-blue-100">
+          <p className="mt-2 max-w-xl text-sm leading-6 text-slate-300">
             Votre centre de contrôle pour piloter l’activité commerciale, financière et technique.
           </p>
           <div className="absolute -right-10 -top-24 -z-10 h-80 w-80 rounded-full border border-white/10" />
@@ -351,7 +351,7 @@ export default function Dashboard({ onNavigate = () => {} }) {
         </div>
       </section>
 
-      <section aria-label="Actions rapides">
+      <section aria-label="Actions rapides" className="motion-rise motion-delay-1">
         <div className="mb-3 flex items-end justify-between gap-3">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Raccourcis</p>
@@ -373,7 +373,7 @@ export default function Dashboard({ onNavigate = () => {} }) {
             </div>
           )}
 
-          <section aria-label="Statistiques de l'activité" className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-4">
+          <section aria-label="Statistiques de l'activité" className="motion-rise motion-delay-2 grid gap-4 sm:grid-cols-2 2xl:grid-cols-4">
             <StatCard
               label="Total clients"
               value={data.clients.length}
@@ -416,7 +416,7 @@ export default function Dashboard({ onNavigate = () => {} }) {
             />
           </section>
 
-          <Suspense fallback={<div role="status" className="flex min-h-72 items-center justify-center gap-2 rounded-2xl border border-slate-100 bg-white text-sm text-slate-500 shadow-lg"><LoaderCircle size={20} className="animate-spin text-blue-600" />Chargement des graphiques…</div>}>
+          <Suspense fallback={<div role="status" className="flex min-h-72 items-center justify-center gap-2 rounded-2xl border border-slate-200/80 bg-white text-sm text-slate-500 shadow-sm"><LoaderCircle size={20} className="animate-spin text-indigo-600" />Chargement des graphiques…</div>}>
             <AnalyticsCharts
               monthlyPayments={monthlyPayments}
               interventionBreakdown={interventionBreakdown}
@@ -427,8 +427,8 @@ export default function Dashboard({ onNavigate = () => {} }) {
             />
           </Suspense>
 
-          <section aria-label="Alertes et actions urgentes" className="grid gap-5 xl:grid-cols-2">
-            <article className="overflow-hidden rounded-2xl border border-rose-100 bg-white shadow-lg shadow-rose-100/40">
+          <section aria-label="Alertes et actions urgentes" className="motion-rise motion-delay-1 grid gap-5 xl:grid-cols-2">
+            <article className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
               <PanelTitle
                 eyebrow="À relancer"
                 title="Retards de paiement"
@@ -459,7 +459,7 @@ export default function Dashboard({ onNavigate = () => {} }) {
               </div>
             </article>
 
-            <article className="overflow-hidden rounded-2xl border border-orange-100 bg-white shadow-lg shadow-orange-100/40">
+            <article className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
               <PanelTitle
                 eyebrow="À suivre"
                 title="Interventions en attente"
@@ -500,7 +500,7 @@ export default function Dashboard({ onNavigate = () => {} }) {
             </article>
           </section>
 
-          <section className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-lg shadow-slate-200/50">
+          <section className="motion-rise motion-delay-2 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
             <PanelTitle
               eyebrow="Derniers mouvements"
               title="Activité récente"

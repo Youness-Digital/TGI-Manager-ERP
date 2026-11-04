@@ -51,8 +51,8 @@ export default function DashboardCharts({
   onNavigate,
 }) {
   return (
-    <section aria-label="Analyses" className="grid gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(300px,1fr)]">
-      <article className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-lg shadow-slate-200/50">
+    <section aria-label="Analyses" className="motion-rise motion-delay-1 grid gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(300px,1fr)]">
+      <article className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md">
         <PanelTitle eyebrow="Trésorerie" title="Évolution des paiements" />
         {monthlyPayments.some((month) => month.total > 0) ? (
           <div className="h-[300px] px-2 pb-4 pt-5 sm:px-5">
@@ -94,7 +94,7 @@ export default function DashboardCharts({
         </div>
       </article>
 
-      <article className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-lg shadow-slate-200/50">
+      <article className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md">
         <PanelTitle eyebrow="Équipe terrain" title="État des interventions" />
         {hasInterventions ? (
           <>
