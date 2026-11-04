@@ -2,21 +2,65 @@ import { useEffect, useMemo, useState } from "react";
 import { FileDown, FileText, LoaderCircle, Plus, Search, X } from "lucide-react";
 import { clientsService, contratsService } from "../services/dbService";
 
-const EMPTY_FORM = {
-  clientId: "",
-  siteAddress: "",
-  contractType: "Installation",
-  category: "Simple",
-  startDate: "",
-  endDate: "",
-  amount: "",
-  elevatorBrand: "",
-  capacityKg: "",
-  floorCount: "",
-  serialNumber: "",
-  maintenanceFrequency: "Mensuelle",
-  status: "Actif",
+const CONTRACT_TEMPLATES = {
+  "Installation|Simple": {
+    description: "Fourniture, pose et mise en service d’un ascenseur selon le devis et les caractéristiques techniques validés par les parties.",
+    scopeItems: ["Étude et préparation du site", "Pose de l’équipement", "Essais et mise en service"],
+    specialConditions: "Les travaux de maçonnerie, l’alimentation électrique et les adaptations non mentionnées au devis sont exclus sauf accord écrit.",
+  },
+  "Installation|Complet": {
+    description: "Prise en charge complète du projet d’installation, de la préparation technique à la réception de l’équipement.",
+    scopeItems: ["Étude technique et coordination du chantier", "Fourniture et installation de l’équipement", "Essais de sécurité et mise en service", "Remise des documents techniques et réception"],
+    specialConditions: "Le calendrier dépend de la disponibilité du site, des autorisations et de l’avancement des travaux préparatoires.",
+  },
+  "Intervention|Simple": {
+    description: "Intervention ponctuelle de diagnostic ou de dépannage sur l’équipement désigné, selon le rapport d’intervention associé.",
+    scopeItems: ["Diagnostic de la panne", "Main-d’œuvre de dépannage", "Compte rendu de visite"],
+    specialConditions: "Les pièces de rechange et travaux supplémentaires sont chiffrés séparément et réalisés après validation du client.",
+  },
+  "Intervention|Complet": {
+    description: "Prestations de maintenance et d’intervention renforcées sur l’équipement, comprenant le suivi préventif et le traitement des anomalies.",
+    scopeItems: ["Visites préventives planifiées", "Diagnostic et dépannage selon les conditions convenues", "Contrôles de sécurité et compte rendu", "Suivi des anomalies et recommandations"],
+    specialConditions: "Les délais d’intervention, les horaires de permanence et les exclusions doivent être confirmés dans les conditions particulières signées.",
+  },
 };
+
+function dateInputValue(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function makeScopeItem(description = "") {
+  return { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, description, quantity: "1", unit: "forfait" };
+}
+
+function createInitialForm() {
+  const start = new Date();
+  const end = new Date(start);
+  end.setFullYear(end.getFullYear() + 1);
+  const template = CONTRACT_TEMPLATES["Installation|Simple"];
+  return {
+    clientId: "",
+    siteAddress: "",
+    contractType: "Installation",
+    category: "Simple",
+    startDate: dateInputValue(start),
+    endDate: dateInputValue(end),
+    amount: "",
+    elevatorBrand: "",
+    capacityKg: "",
+    floorCount: "",
+    serialNumber: "",
+    maintenanceFrequency: "À définir",
+    paymentTerms: "Selon devis validé",
+    status: "Actif",
+    description: template.description,
+    scopeItems: template.scopeItems.map(makeScopeItem),
+    specialConditions: template.specialConditions,
+  };
+}
 
 function formatDate(value) {
   if (!value) return "—";
@@ -31,7 +75,20 @@ function formatAmount(value) {
 }
 
 function ContractModal({ clients, clientsLoading, onClose, onCreate, saving, error }) {
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [form, setForm] = useState(createInitialForm);
+
+  function applyTemplate(contractType = form.contractType, category = form.category) {
+    const template = CONTRACT_TEMPLATES[`${contractType}|${category}`];
+    if (!template) return;
+    setForm((current) => ({
+      ...current,
+      contractType,
+      category,
+      description: template.description,
+      scopeItems: template.scopeItems.map(makeScopeItem),
+      specialConditions: template.specialConditions,
+    }));
+  }
 
   function submit(event) {
     event.preventDefault();
@@ -51,7 +108,15 @@ function ContractModal({ clients, clientsLoading, onClose, onCreate, saving, err
       floorCount: Number(form.floorCount) || 0,
       serialNumber: form.serialNumber.trim(),
       maintenanceFrequency: form.maintenanceFrequency,
+      paymentTerms: form.paymentTerms,
       status: form.status,
+      description: form.description.trim(),
+      scopeItems: form.scopeItems.filter((item) => item.description.trim()).map(({ description, quantity, unit }) => ({
+        description: description.trim(),
+        quantity: Number(quantity) || 1,
+        unit: unit.trim() || "forfait",
+      })),
+      specialConditions: form.specialConditions.trim(),
     });
   }
 
@@ -100,14 +165,14 @@ function ContractModal({ clients, clientsLoading, onClose, onCreate, saving, err
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block text-xs font-semibold text-slate-600">
               Type de contrat <span className="text-red-500">*</span>
-              <select value={form.contractType} onChange={(event) => setForm((current) => ({ ...current, contractType: event.target.value }))} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50">
+              <select value={form.contractType} onChange={(event) => applyTemplate(event.target.value, form.category)} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50">
                 <option value="Installation">Installation</option>
                 <option value="Intervention">Intervention</option>
               </select>
             </label>
             <label className="block text-xs font-semibold text-slate-600">
               Catégorie <span className="text-red-500">*</span>
-              <select value={form.category} onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50">
+              <select value={form.category} onChange={(event) => applyTemplate(form.contractType, event.target.value)} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50">
                 <option value="Simple">Contrat Simple</option>
                 <option value="Complet">Contrat Complet</option>
               </select>
@@ -132,6 +197,18 @@ function ContractModal({ clients, clientsLoading, onClose, onCreate, saving, err
             </label>
           </div>
 
+          <section className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wide text-indigo-900">Modèle de contrat</h3>
+                <p className="mt-1 text-[11px] leading-5 text-indigo-700">4 modèles prêts à personnaliser : installation ou intervention, simple ou complet.</p>
+              </div>
+              <button type="button" onClick={() => applyTemplate()} className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-[11px] font-semibold text-indigo-700 transition hover:bg-indigo-100">
+                <FileText size={14} /> Charger le modèle sélectionné
+              </button>
+            </div>
+          </section>
+
           <section className="rounded-xl border border-line bg-slate-50/70 p-4">
             <h3 className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-500">Caractéristiques de l’ascenseur</h3>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -139,8 +216,40 @@ function ContractModal({ clients, clientsLoading, onClose, onCreate, saving, err
               <label className="block text-xs font-semibold text-slate-600">Charge utile (kg)<input type="number" min="0" step="1" value={form.capacityKg} onChange={(event) => setForm((current) => ({ ...current, capacityKg: event.target.value }))} className="mt-2 w-full rounded-xl border border-line bg-white px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand" /></label>
               <label className="block text-xs font-semibold text-slate-600">Nombre de niveaux / étages<input type="number" min="0" step="1" value={form.floorCount} onChange={(event) => setForm((current) => ({ ...current, floorCount: event.target.value }))} className="mt-2 w-full rounded-xl border border-line bg-white px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand" /></label>
               <label className="block text-xs font-semibold text-slate-600">Numéro de série<input maxLength={120} value={form.serialNumber} onChange={(event) => setForm((current) => ({ ...current, serialNumber: event.target.value }))} className="mt-2 w-full rounded-xl border border-line bg-white px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand" /></label>
-              <label className="block text-xs font-semibold text-slate-600 sm:col-span-2">Fréquence de maintenance<select value={form.maintenanceFrequency} onChange={(event) => setForm((current) => ({ ...current, maintenanceFrequency: event.target.value }))} className="mt-2 w-full rounded-xl border border-line bg-white px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand"><option>Mensuelle</option><option>Trimestrielle</option></select></label>
+              <label className="block text-xs font-semibold text-slate-600">Fréquence de suivi (si applicable)<select value={form.maintenanceFrequency} onChange={(event) => setForm((current) => ({ ...current, maintenanceFrequency: event.target.value }))} className="mt-2 w-full rounded-xl border border-line bg-white px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand"><option>À définir</option><option>Mensuelle</option><option>Trimestrielle</option><option>Annuelle</option><option>Sans maintenance</option></select></label>
+              <label className="block text-xs font-semibold text-slate-600">Modalités de règlement<select value={form.paymentTerms} onChange={(event) => setForm((current) => ({ ...current, paymentTerms: event.target.value }))} className="mt-2 w-full rounded-xl border border-line bg-white px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand"><option>Selon devis validé</option><option>À la commande</option><option>Par étapes</option><option>Mensuel</option><option>Trimestriel</option></select></label>
             </div>
+          </section>
+
+          <section className="rounded-xl border border-line p-4">
+            <div className="mb-3">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500">Périmètre du contrat</h3>
+              <p className="mt-1 text-[11px] text-muted">Les prestations ci-dessous seront détaillées dans le contrat PDF.</p>
+            </div>
+            <label className="mb-4 block text-xs font-semibold text-slate-600">
+              Objet et description
+              <textarea rows={3} maxLength={3000} value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} className="mt-2 w-full resize-y rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal leading-5 text-ink outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
+            </label>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div><h4 className="text-xs font-semibold text-slate-700">Prestations incluses</h4><p className="mt-1 text-[10px] text-muted">Ajoutez, modifiez ou retirez des lignes.</p></div>
+              <button type="button" disabled={form.scopeItems.length >= 20} onClick={() => setForm((current) => ({ ...current, scopeItems: [...current.scopeItems, makeScopeItem()] }))} className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-2 text-[10px] font-semibold text-slate-600 transition hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-50">
+                <Plus size={13} /> Ajouter une ligne
+              </button>
+            </div>
+            <div className="space-y-2">
+              {form.scopeItems.map((item, index) => (
+                <div key={item.id} className="grid gap-2 rounded-lg bg-slate-50 p-2 sm:grid-cols-[minmax(0,1fr)_90px_110px_32px] sm:items-center">
+                  <input aria-label={`Prestation ${index + 1}`} required value={item.description} onChange={(event) => setForm((current) => ({ ...current, scopeItems: current.scopeItems.map((row) => row.id === item.id ? { ...row, description: event.target.value } : row) }))} placeholder="Décrire la prestation ou l’étape" className="w-full rounded-lg border border-line bg-white px-3 py-2.5 text-xs text-ink outline-none focus:border-brand" />
+                  <input aria-label={`Quantité prestation ${index + 1}`} type="number" min="1" step="1" value={item.quantity} onChange={(event) => setForm((current) => ({ ...current, scopeItems: current.scopeItems.map((row) => row.id === item.id ? { ...row, quantity: event.target.value } : row) }))} className="w-full rounded-lg border border-line bg-white px-3 py-2.5 text-xs text-ink outline-none focus:border-brand" />
+                  <input aria-label={`Unité prestation ${index + 1}`} maxLength={30} value={item.unit} onChange={(event) => setForm((current) => ({ ...current, scopeItems: current.scopeItems.map((row) => row.id === item.id ? { ...row, unit: event.target.value } : row) }))} placeholder="Unité / forfait" className="w-full rounded-lg border border-line bg-white px-3 py-2.5 text-xs text-ink outline-none focus:border-brand" />
+                  <button type="button" aria-label={`Supprimer la prestation ${index + 1}`} disabled={form.scopeItems.length === 1} onClick={() => setForm((current) => ({ ...current, scopeItems: current.scopeItems.filter((row) => row.id !== item.id) }))} className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-30"><X size={14} /></button>
+                </div>
+              ))}
+            </div>
+            <label className="mt-4 block text-xs font-semibold text-slate-600">
+              Conditions particulières
+              <textarea rows={2} maxLength={2000} value={form.specialConditions} onChange={(event) => setForm((current) => ({ ...current, specialConditions: event.target.value }))} className="mt-2 w-full resize-y rounded-xl border border-line bg-white px-3.5 py-3 text-sm font-normal leading-5 text-ink outline-none transition focus:border-brand focus:ring-4 focus:ring-blue-50" />
+            </label>
           </section>
 
           {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2.5 text-xs leading-5 text-red-700">{error}</p>}

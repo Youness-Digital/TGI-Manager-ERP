@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Box, LoaderCircle, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { AlertTriangle, Box, FileDown, LoaderCircle, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { stockService } from "../services/dbService";
 
 const EMPTY_FORM = { reference: "", designation: "", quantity: "0", unitPrice: "0" };
@@ -67,7 +67,7 @@ function StockModal({ item, onClose, onSave, saving, error }) {
   );
 }
 
-export default function StockPage() {
+export default function StockPage({ company = {} }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -146,6 +146,30 @@ export default function StockPage() {
     setModalOpen(true);
   }
 
+  async function exportItem(item) {
+    setActionError("");
+    try {
+      const { generateFicheStockPDF, prepareCompanyForPdf } = await import("../utils/pdfGenerator");
+      const readyCompany = await prepareCompanyForPdf(company);
+      generateFicheStockPDF(item, { company: readyCompany });
+    } catch (error) {
+      console.error("Impossible de générer la fiche PDF de la pièce.", error);
+      setActionError("La fiche PDF de cette pièce n’a pas pu être générée.");
+    }
+  }
+
+  async function exportInventory() {
+    setActionError("");
+    try {
+      const { generateInventaireStockPDF, prepareCompanyForPdf } = await import("../utils/pdfGenerator");
+      const readyCompany = await prepareCompanyForPdf(company);
+      generateInventaireStockPDF(filteredItems, { company: readyCompany });
+    } catch (error) {
+      console.error("Impossible de générer l’inventaire PDF du stock.", error);
+      setActionError("L’inventaire PDF du stock n’a pas pu être généré.");
+    }
+  }
+
   const lowStockCount = items.filter((item) => Number(item.quantity) < 5).length;
 
   return (
@@ -156,7 +180,10 @@ export default function StockPage() {
           <h2 className="mt-1 text-xl font-bold tracking-tight text-ink">Gestion du stock</h2>
           <p className="mt-1 text-xs text-muted">Suivez les pièces détachées et leurs niveaux de disponibilité.</p>
         </div>
-        <button onClick={() => openModal()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3 text-xs font-bold text-white shadow-sm transition hover:bg-brand-dark"><Plus size={16} /> Ajouter une pièce</button>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <button onClick={exportInventory} disabled={loading || !filteredItems.length} className="inline-flex items-center justify-center gap-2 rounded-xl border border-line bg-white px-4 py-3 text-xs font-bold text-slate-700 shadow-sm transition hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-50"><FileDown size={15} /> Exporter l’inventaire</button>
+          <button onClick={() => openModal()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3 text-xs font-bold text-white shadow-sm transition hover:bg-brand-dark"><Plus size={16} /> Ajouter une pièce</button>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -189,7 +216,7 @@ export default function StockPage() {
                     <td className="px-4 py-3.5 text-slate-600">{item.designation || "—"}</td>
                     <td className="px-4 py-3.5"><span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${low ? "bg-rose-50 text-rose-700 ring-1 ring-rose-200" : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"}`}>{Number(item.quantity) || 0}{low ? " · Stock bas" : ""}</span></td>
                     <td className="whitespace-nowrap px-4 py-3.5 text-slate-600">{Number(item.unitPrice || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</td>
-                    <td className="px-5 py-3.5 text-right"><div className="inline-flex gap-1"><button onClick={() => openModal(item)} aria-label={`Modifier ${item.designation}`} className="rounded-lg p-2 text-slate-500 hover:bg-blue-50 hover:text-brand"><Pencil size={14} /></button><button onClick={() => deleteItem(item)} aria-label={`Supprimer ${item.designation}`} disabled={deletingId === item.id} className="rounded-lg p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"><Trash2 size={14} /></button></div></td>
+                    <td className="px-5 py-3.5 text-right"><div className="inline-flex gap-1"><button onClick={() => exportItem(item)} aria-label={`Exporter la fiche PDF de ${item.designation}`} className="rounded-lg p-2 text-slate-500 transition hover:bg-blue-50 hover:text-brand"><FileDown size={14} /></button><button onClick={() => openModal(item)} aria-label={`Modifier ${item.designation}`} className="rounded-lg p-2 text-slate-500 hover:bg-blue-50 hover:text-brand"><Pencil size={14} /></button><button onClick={() => deleteItem(item)} aria-label={`Supprimer ${item.designation}`} disabled={deletingId === item.id} className="rounded-lg p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"><Trash2 size={14} /></button></div></td>
                   </tr>;
                 })}
               </tbody>

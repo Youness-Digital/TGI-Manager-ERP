@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { LoaderCircle, Pencil, Plus, Search, Trash2, UserRound, X } from "lucide-react";
+import { FileDown, LoaderCircle, Pencil, Plus, Search, Trash2, UserRound, X } from "lucide-react";
 import { equipeService } from "../services/dbService";
 
 const EMPTY_FORM = { firstName: "", lastName: "", phone: "", role: "Technicien" };
@@ -54,7 +54,7 @@ function TeamModal({ member, onClose, onSave, saving, error }) {
   );
 }
 
-export default function EquipePage() {
+export default function EquipePage({ company = {} }) {
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -131,11 +131,38 @@ export default function EquipePage() {
     setModalOpen(true);
   }
 
+  async function exportMember(member) {
+    setActionError("");
+    try {
+      const { generateFicheEquipePDF, prepareCompanyForPdf } = await import("../utils/pdfGenerator");
+      const readyCompany = await prepareCompanyForPdf(company);
+      generateFicheEquipePDF(member, { company: readyCompany });
+    } catch (error) {
+      console.error("Impossible de générer la fiche PDF du membre.", error);
+      setActionError("La fiche PDF de ce membre n’a pas pu être générée.");
+    }
+  }
+
+  async function exportTeam() {
+    setActionError("");
+    try {
+      const { generateListeEquipePDF, prepareCompanyForPdf } = await import("../utils/pdfGenerator");
+      const readyCompany = await prepareCompanyForPdf(company);
+      generateListeEquipePDF(filteredMembers, { company: readyCompany });
+    } catch (error) {
+      console.error("Impossible de générer le registre PDF de l’équipe.", error);
+      setActionError("Le registre PDF de l’équipe n’a pas pu être généré.");
+    }
+  }
+
   return (
     <section className="space-y-5">
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-brand">Ressources humaines</p><h2 className="mt-1 text-xl font-bold tracking-tight text-ink">Équipe technique</h2><p className="mt-1 text-xs text-muted">Gérez les techniciens disponibles pour les interventions.</p></div>
-        <button onClick={() => openModal()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3 text-xs font-bold text-white shadow-sm transition hover:bg-brand-dark"><Plus size={16} /> Ajouter un membre</button>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <button onClick={exportTeam} disabled={loading || !filteredMembers.length} className="inline-flex items-center justify-center gap-2 rounded-xl border border-line bg-white px-4 py-3 text-xs font-bold text-slate-700 shadow-sm transition hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-50"><FileDown size={15} /> Exporter l’équipe</button>
+          <button onClick={() => openModal()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3 text-xs font-bold text-white shadow-sm transition hover:bg-brand-dark"><Plus size={16} /> Ajouter un membre</button>
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-line bg-white shadow-card">
@@ -153,7 +180,7 @@ export default function EquipePage() {
               <thead className="bg-slate-50 text-[9px] font-bold uppercase tracking-[0.13em] text-slate-400"><tr><th className="px-5 py-3.5">Nom</th><th className="px-4 py-3.5">Téléphone</th><th className="px-4 py-3.5">Rôle</th><th className="px-5 py-3.5 text-right">Actions</th></tr></thead>
               <tbody className="divide-y divide-line">{filteredMembers.map((member) => <tr key={member.id} className="text-xs transition hover:bg-slate-50/70">
                 <td className="px-5 py-3.5 font-semibold text-ink">{memberName(member)}</td><td className="px-4 py-3.5 text-slate-600">{member.phone || "—"}</td><td className="px-4 py-3.5"><span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${member.role === "Chef d'équipe" ? "bg-violet-50 text-violet-700" : "bg-blue-50 text-blue-700"}`}>{member.role || "Technicien"}</span></td>
-                <td className="px-5 py-3.5 text-right"><div className="inline-flex gap-1"><button onClick={() => openModal(member)} aria-label={`Modifier ${memberName(member)}`} className="rounded-lg p-2 text-slate-500 hover:bg-blue-50 hover:text-brand"><Pencil size={14} /></button><button onClick={() => deleteMember(member)} aria-label={`Supprimer ${memberName(member)}`} disabled={deletingId === member.id} className="rounded-lg p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"><Trash2 size={14} /></button></div></td>
+                <td className="px-5 py-3.5 text-right"><div className="inline-flex gap-1"><button onClick={() => exportMember(member)} aria-label={`Exporter la fiche PDF de ${memberName(member)}`} className="rounded-lg p-2 text-slate-500 transition hover:bg-blue-50 hover:text-brand"><FileDown size={14} /></button><button onClick={() => openModal(member)} aria-label={`Modifier ${memberName(member)}`} className="rounded-lg p-2 text-slate-500 hover:bg-blue-50 hover:text-brand"><Pencil size={14} /></button><button onClick={() => deleteMember(member)} aria-label={`Supprimer ${memberName(member)}`} disabled={deletingId === member.id} className="rounded-lg p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"><Trash2 size={14} /></button></div></td>
               </tr>)}</tbody>
             </table>
           </div>

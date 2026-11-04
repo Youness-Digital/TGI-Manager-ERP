@@ -482,6 +482,101 @@ export function generateFicheClientPDF(client = {}, options = {}) {
   return report.finish();
 }
 
+export function generateFicheStockPDF(item = {}, options = {}) {
+  const { company } = normalizeOptions(item, { ...options, showSignatures: false });
+  const reference = recordRef(item, item.reference || item.designation || "stock");
+  const quantity = number(item.quantity ?? item.quantite, 0);
+  const report = createReport({
+    title: "Fiche de pièce — stock",
+    reference,
+    issueDate: new Date(),
+    company,
+    signatures: { enabled: false },
+    filename: fileName(`fiche-stock-${reference}`),
+  });
+  report.addSection("Informations de la pièce", [
+    ["Référence", text(item.reference, "—")],
+    ["Désignation", text(item.designation || item.name, "—")],
+    ["Quantité disponible", quantity],
+    ["Alerte de stock", quantity < 5 ? "Stock bas — réapprovisionnement à vérifier" : "Niveau normal"],
+    ["Prix unitaire", money(item.unitPrice ?? item.price ?? 0)],
+    ["Valeur indicative du stock", money(quantity * number(item.unitPrice ?? item.price, 0))],
+  ], { columns: ["Information", "Détail"] });
+  return report.finish();
+}
+
+export function generateInventaireStockPDF(items = [], options = {}) {
+  if (!Array.isArray(items)) throw new TypeError("items doit être un tableau.");
+  const { company } = normalizeOptions({}, { ...options, showSignatures: false });
+  const report = createReport({
+    title: "Inventaire du stock",
+    reference: `Situation au ${formatDate(new Date())}`,
+    issueDate: new Date(),
+    company,
+    signatures: { enabled: false },
+    filename: fileName("inventaire-stock"),
+  });
+  const rows = items.map((item) => {
+    const quantity = number(item.quantity ?? item.quantite, 0);
+    return [
+      text(item.reference, "—"),
+      text(item.designation || item.name, "Pièce"),
+      quantity,
+      money(item.unitPrice ?? item.price ?? 0),
+      quantity < 5 ? "Stock bas" : "Normal",
+    ];
+  });
+  report.addSection("Articles en stock", rows, {
+    columns: ["Référence", "Désignation", "Qté", "Prix unitaire", "État"],
+    widths: [27, 85, 18, 30, 25],
+    autoColumn: 1,
+  });
+  return report.finish();
+}
+
+export function generateFicheEquipePDF(member = {}, options = {}) {
+  const { company } = normalizeOptions(member, { ...options, showSignatures: false });
+  const name = [member.firstName, member.lastName].filter(Boolean).join(" ") || member.name || "Membre";
+  const report = createReport({
+    title: "Fiche membre de l’équipe",
+    reference: recordRef(member, name),
+    issueDate: new Date(),
+    company,
+    signatures: { enabled: false },
+    filename: fileName(`fiche-equipe-${name}`),
+  });
+  report.addSection("Informations du personnel", [
+    ["Nom complet", text(name)],
+    ["Rôle", text(member.role, "Technicien")],
+    ["Téléphone", text(member.phone, "—")],
+    ["Identifiant interne", text(member.id, "—")],
+  ], { columns: ["Information", "Détail"] });
+  return report.finish();
+}
+
+export function generateListeEquipePDF(members = [], options = {}) {
+  if (!Array.isArray(members)) throw new TypeError("members doit être un tableau.");
+  const { company } = normalizeOptions({}, { ...options, showSignatures: false });
+  const report = createReport({
+    title: "Registre de l’équipe technique",
+    reference: `Situation au ${formatDate(new Date())}`,
+    issueDate: new Date(),
+    company,
+    signatures: { enabled: false },
+    filename: fileName("registre-equipe"),
+  });
+  report.addSection("Personnel", members.map((member) => [
+    [member.firstName, member.lastName].filter(Boolean).join(" ") || member.name || "Membre",
+    text(member.role, "Technicien"),
+    text(member.phone, "—"),
+  ]), {
+    columns: ["Nom complet", "Rôle", "Téléphone"],
+    widths: [74, 55, 55],
+    autoColumn: 0,
+  });
+  return report.finish();
+}
+
 export function generateFicheRecouvrementPDF(clientsList = [], options = {}) {
   if (!Array.isArray(clientsList)) throw new TypeError("clientsList doit être un tableau.");
   const normalized = normalizeOptions({}, { ...options, showSignatures: false });
@@ -546,25 +641,28 @@ export function generateRecuPaiementPDF(paiement = {}, client = {}, options = {}
 export function generateContratPDF(contrat = {}, client = {}, options = {}) {
   const { company, signatures } = normalizeOptions(contrat, { ...options, client: options.client || client });
   const ref = recordRef(contrat, `CTR-${Date.now()}`);
+  const contractType = text(contrat.contractType || contrat.type, "Installation");
+  const category = text(contrat.category || contrat.categorie, "Simple");
+  const categoryLabel = category.toLocaleLowerCase("fr-FR").includes("complet") ? "Complet" : "Simple";
   const report = createReport({
-    title: "Contrat de prestation",
+    title: `Contrat ${contractType.toLocaleLowerCase("fr-FR")} — ${categoryLabel}`,
     reference: ref,
     issueDate: contrat.date || new Date(),
     company,
     signatures,
     filename: fileName(`contrat-${ref}`),
   });
-  const contractType = text(contrat.contractType || contrat.type, "Installation");
-  const category = text(contrat.category || contrat.categorie, "Contrat Simple");
   report.addSection("Parties et objet", [
     ["Client", clientIdentity(client)],
     ["Adresse du client", client.address || client.adresse || "—"],
     ["Type de contrat", contractType],
-    ["Catégorie", category],
+    ["Catégorie", `Contrat ${categoryLabel}`],
     ["Lieu d’intervention / site", contrat.siteAddress || contrat.siteName || contrat.buildingName || contrat.site || "—"],
     ["Équipement / ascenseur", contrat.equipment || contrat.equipement || "—"],
     ["Date de début", formatDate(contrat.startDate || contrat.dateDebut)],
     ["Date de fin / durée", contrat.endDate ? formatDate(contrat.endDate) : text(contrat.duration || contrat.duree, "—")],
+    ["Fréquence de suivi", contrat.maintenanceFrequency || "À définir selon le périmètre"],
+    ["Modalités de règlement", contrat.paymentTerms || contrat.paymentSchedule || "Selon devis ou échéancier validé"],
     ["Statut du contrat", contrat.status || "Actif"],
     ["Montant", money(contrat.amount ?? contrat.montant)],
   ], { columns: ["Information", "Détail"] });
@@ -576,7 +674,36 @@ export function generateContratPDF(contrat = {}, client = {}, options = {}) {
     ["Fréquence de maintenance", contrat.maintenanceFrequency || "—"],
   ], { columns: ["Caractéristique", "Valeur"] });
   report.addParagraph("Description des prestations", contrat.description || contrat.scope || contrat.prestations);
-  const clauses = Array.isArray(contrat.clauses) ? contrat.clauses : DEFAULT_CLAUSES;
+  const scopeItems = Array.isArray(contrat.scopeItems) ? contrat.scopeItems : [];
+  if (scopeItems.length) {
+    report.addSection("Prestations incluses", scopeItems.map((item, index) => [
+      index + 1,
+      text(item.description || item.designation || item.label, "Prestation"),
+      text(item.quantity ?? 1),
+      text(item.unit || "forfait"),
+    ]), {
+      columns: ["#", "Prestation / étape", "Qté", "Unité"],
+      widths: [10, 100, 20, 35],
+      autoColumn: 1,
+    });
+  }
+  const clauses = Array.isArray(contrat.clauses) ? contrat.clauses : [
+    {
+      title: "Périmètre et prestations",
+      text: text(contrat.description, `Le périmètre du contrat de type « ${contractType} » est défini dans la liste des prestations et le devis accepté. Toute prestation non listée fait l'objet d'un accord écrit.`),
+    },
+    {
+      title: `Niveau de service — Contrat ${categoryLabel}`,
+      text: categoryLabel === "Complet"
+        ? "Les prestations détaillées ci-dessus constituent le périmètre complet convenu entre les parties. Les délais, visites et exclusions spécifiques sont précisés dans les conditions particulières."
+        : "Le contrat couvre uniquement les prestations explicitement décrites ci-dessus. Toute extension de périmètre doit faire l'objet d'un devis ou d'un avenant accepté.",
+    },
+    {
+      title: "Prix et règlement",
+      text: `Le montant et les modalités de règlement sont ceux indiqués au présent contrat et au devis associé. Modalités convenues : ${text(contrat.paymentTerms || contrat.paymentSchedule, "à préciser par les parties")}.`,
+    },
+    ...DEFAULT_CLAUSES.slice(2),
+  ];
   report.addSection("Conditions générales — modèle à adapter", clauses.map((clause) => [
     text(clause.title || clause.titre, "Clause"),
     text(clause.text || clause.content || clause.texte),

@@ -216,12 +216,12 @@ export default function App() {
           )}
           {activePage === "stock" && (
             <Suspense fallback={<div className="flex min-h-56 items-center justify-center text-sm text-muted">Chargement du module stock…</div>}>
-              <StockPage />
+              <StockPage company={company} />
             </Suspense>
           )}
           {activePage === "equipe" && (
             <Suspense fallback={<div className="flex min-h-56 items-center justify-center text-sm text-muted">Chargement du module équipe…</div>}>
-              <EquipePage />
+              <EquipePage company={company} />
             </Suspense>
           )}
           {activePage === "documents" && <DocumentForm profiles={profiles} company={company} />}
