@@ -358,7 +358,7 @@ export default function Dashboard({ onNavigate = () => {} }) {
             <h2 className="mt-1 text-base font-semibold text-slate-900">Actions rapides</h2>
           </div>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="motion-stagger grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <QuickAction label="Nouveau client" description="Ajouter une fiche au répertoire" Icon={UsersRound} style="bg-blue-50 text-blue-700" onClick={() => onNavigate("clients")} />
           <QuickAction label="Créer un devis" description="Préparer un devis ou une facture" Icon={FilePlus2} style="bg-violet-50 text-violet-700" onClick={() => onNavigate("documents")} />
           <QuickAction label="Nouvelle intervention" description="Planifier une visite technique" Icon={Wrench} style="bg-amber-50 text-amber-700" onClick={() => onNavigate("interventions")} />
@@ -373,7 +373,7 @@ export default function Dashboard({ onNavigate = () => {} }) {
             </div>
           )}
 
-          <section aria-label="Statistiques de l'activité" className="motion-rise motion-delay-2 grid gap-4 sm:grid-cols-2 2xl:grid-cols-4">
+          <section aria-label="Statistiques de l'activité" className="motion-rise motion-delay-2 motion-stagger grid gap-4 sm:grid-cols-2 2xl:grid-cols-4">
             <StatCard
               label="Total clients"
               value={data.clients.length}

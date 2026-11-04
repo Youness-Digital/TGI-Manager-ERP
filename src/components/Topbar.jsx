@@ -16,7 +16,7 @@ const pageTitles = {
 };
 
 const USER_PROFILES = {
-  "ly.laassasyouness@gmail.com": {
+  "laassasyouness5@gmail.com": {
     name: "Youness Laassas",
     role: "Commercial",
     profileKey: "salesperson",

@@ -3,6 +3,7 @@ import { ArrowRight, CheckCircle2, LockKeyhole, LoaderCircle, Mail, ShieldCheck,
 import { browserLocalPersistence, setPersistence, signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../firebase";
 import CompanyLogo from "./CompanyLogo";
+import InstallPrompt from "./InstallPrompt";
 
 function getLoginError(error) {
   switch (error.code) {
@@ -43,6 +44,9 @@ export default function LoginPage({ initialError = "" }) {
 
   return (
     <main className="relative flex min-h-screen overflow-hidden bg-white text-slate-900">
+      <div className="absolute right-4 top-4 z-40 sm:right-6 sm:top-6">
+        <InstallPrompt />
+      </div>
       <div aria-hidden="true" className="pointer-events-none absolute -left-40 -top-40 h-96 w-96 rounded-full bg-indigo-100/70 blur-3xl motion-glow" />
       <div aria-hidden="true" className="pointer-events-none absolute -bottom-48 right-[38%] h-96 w-96 rounded-full bg-cyan-100/50 blur-3xl motion-glow" />
 

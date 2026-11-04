@@ -7,7 +7,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["favicon.ico", "logo.png.jpeg"],
+      includeAssets: ["favicon.ico", "logo.png.jpeg", "icon-192.png", "icon-512.png"],
       manifest: {
         name: "TGI Manager",
         short_name: "TGI",
@@ -21,9 +21,20 @@ export default defineConfig({
         start_url: "/",
         icons: [
           {
-            src: "/logo.png.jpeg",
-            sizes: "500x500",
-            type: "image/jpeg",
+            src: "/icon-192.png",
+            sizes: "192x192",
+            type: "image/png",
+          },
+          {
+            src: "/icon-512.png",
+            sizes: "512x512",
+            type: "image/png",
+          },
+          {
+            src: "/icon-512.png",
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "maskable",
           },
         ],
       },
