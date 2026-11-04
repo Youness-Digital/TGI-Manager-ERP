@@ -123,6 +123,15 @@ button:disabled {
   scrollbar-color: #d4dceb transparent;
 }
 
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

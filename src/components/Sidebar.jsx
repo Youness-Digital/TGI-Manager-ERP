@@ -33,7 +33,7 @@ export default function Sidebar({ activePage, onNavigate, profiles, company }) {
   ];
 
   return (
-    <aside className="scrollbar-thin relative z-20 hidden h-screen min-h-0 w-[260px] shrink-0 flex-col overflow-y-auto overscroll-contain border-r border-white/[0.07] bg-[#10172a] px-4 py-5 pb-8 text-white lg:flex">
+    <aside className="scrollbar-hide sticky top-0 z-30 hidden h-screen max-h-screen min-h-0 w-[260px] shrink-0 flex-col overflow-x-hidden overflow-y-auto overscroll-y-contain border-r border-white/[0.07] bg-[#10172a] px-4 py-5 pb-24 text-white lg:flex">
       <button onClick={() => onNavigate("dashboard")} className="mb-8 flex shrink-0 items-center gap-3 rounded-xl px-2 py-1 text-left transition-all duration-200 hover:bg-white/[0.04]">
         <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-black shadow-lg shadow-black/20">
           <CompanyLogo src={company?.logoUrl} className="h-full w-full" />
