@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { LoaderCircle } from "lucide-react";
 import Icon from "./Icon";
+import CompanyLogo from "./CompanyLogo";
 
 const initialItems = [
   { description: "Installation d'un ascenseur électrique 6 personnes — fourniture, pose, mise en service et essais de sécurité.", quantity: 1, unitPrice: 18400 },
@@ -15,6 +17,8 @@ export default function DocumentForm({ profiles, company }) {
   const [taxRate, setTaxRate] = useState("20");
   const [discountPercent, setDiscountPercent] = useState("0");
   const [notice, setNotice] = useState("");
+  const [noticeType, setNoticeType] = useState("success");
+  const [generating, setGenerating] = useState(false);
   const subtotal = items.reduce((sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), 0);
   const discountAmount = subtotal * (Number(discountPercent) || 0) / 100;
   const taxableAmount = subtotal - discountAmount;
@@ -29,9 +33,37 @@ export default function DocumentForm({ profiles, company }) {
   async function createPdf(event) {
     event.preventDefault();
     if (!clientName.trim()) {
+      setNoticeType("error");
       setNotice("Renseignez le nom du client avant de générer le document.");
       return;
     }
+    const invalidItem = items.some((item) =>
+      !item.description.trim()
+      || !Number.isFinite(Number(item.quantity))
+      || Number(item.quantity) <= 0
+      || !Number.isFinite(Number(item.unitPrice))
+      || Number(item.unitPrice) < 0
+    );
+    if (invalidItem) {
+      setNoticeType("error");
+      setNotice("Vérifiez les lignes : désignation obligatoire, quantité positive et prix non négatif.");
+      return;
+    }
+    if (
+      !Number.isFinite(Number(taxRate))
+      || Number(taxRate) < 0
+      || Number(taxRate) > 100
+      || !Number.isFinite(Number(discountPercent))
+      || Number(discountPercent) < 0
+      || Number(discountPercent) > 100
+    ) {
+      setNoticeType("error");
+      setNotice("La TVA et la remise doivent être comprises entre 0 et 100 %.");
+      return;
+    }
+
+    setGenerating(true);
+    setNotice("");
     try {
       const { generateDocumentPDF, prepareCompanyForPdf } = await import("../utils/pdfGenerator");
       const readyCompany = await prepareCompanyForPdf(company);
@@ -50,15 +82,19 @@ export default function DocumentForm({ profiles, company }) {
         taxAmount,
         total: totalWithTax,
       });
+      setNoticeType("success");
       setNotice(`${kind} généré et téléchargé avec succès.`);
     } catch (error) {
       console.error("La génération du document PDF a échoué.", error);
+      setNoticeType("error");
       setNotice("Impossible de générer le PDF. Vérifiez les données et réessayez.");
+    } finally {
+      setGenerating(false);
     }
   }
 
   return (
-    <form onSubmit={createPdf} className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
+    <form noValidate onSubmit={createPdf} className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
       <div className="space-y-5">
         <section className="rounded-2xl border border-line bg-white p-5 md:p-6">
           <div className="mb-5 flex items-center justify-between gap-3">
@@ -140,11 +176,13 @@ export default function DocumentForm({ profiles, company }) {
             <div className="flex justify-between border-t border-line pt-2 text-sm"><dt className="font-bold text-slate-700">Total TTC</dt><dd className="font-bold text-brand">{formatMoney(totalWithTax)}</dd></div>
           </dl>
         </section>
-        {notice && <p role="status" className={`rounded-lg px-4 py-3 text-xs ${notice.includes("succès") ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>{notice}</p>}
+        {notice && <p role={noticeType === "error" ? "alert" : "status"} className={`rounded-lg border px-4 py-3 text-xs ${noticeType === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-rose-200 bg-rose-50 text-rose-700"}`}>{notice}</p>}
       </div>
 
-      <aside className="h-fit rounded-2xl border border-line bg-white p-5">
-        <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-brand"><Icon name="file" /></div>
+      <aside className="h-fit rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex h-12 w-12 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-black shadow-sm">
+          <CompanyLogo src={company?.logoUrl} className="h-full w-full" />
+        </div>
         <h2 className="text-sm font-bold text-ink">Document prêt à envoyer</h2>
         <p className="mt-2 text-xs leading-5 text-muted">Un PDF professionnel avec votre en-tête, les lignes de détail et les espaces de signatures de votre équipe.</p>
         <div className="my-5 space-y-3 border-y border-line py-4 text-xs text-slate-500">
@@ -152,8 +190,9 @@ export default function DocumentForm({ profiles, company }) {
           <div className="flex items-center justify-between"><span>Articles</span><strong className="font-semibold text-ink">{items.length}</strong></div>
           <div className="flex items-center justify-between"><span>Équipe</span><strong className="font-semibold text-ink">Directeur & commercial</strong></div>
         </div>
-        <button type="submit" className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3 text-xs font-bold text-white transition hover:bg-brand-dark">
-          <Icon name="download" size={16} /> Générer le PDF
+        <button type="submit" disabled={generating} className="group relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-brand px-4 py-3 text-xs font-bold text-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-brand-dark hover:shadow-md disabled:translate-y-0 disabled:cursor-wait disabled:opacity-70">
+          {generating ? <LoaderCircle size={16} className="animate-spin" /> : <Icon name="download" size={16} />}
+          {generating ? "Génération en cours…" : "Générer le PDF"}
         </button>
         <p className="mt-3 text-center text-[10px] leading-4 text-slate-400">Mise en page optimisée · Retours à la ligne automatiques</p>
       </aside>

@@ -5,6 +5,7 @@ import Topbar from "./components/Topbar";
 import DocumentForm from "./components/DocumentForm";
 import LoginPage from "./components/LoginPage";
 import ProfileSettings from "./components/ProfileSettings";
+import CompanyLogo from "./components/CompanyLogo";
 import Dashboard from "./pages/Dashboard";
 import { NAV_LINKS } from "./components/Sidebar";
 import { auth } from "./firebase";
@@ -153,12 +154,13 @@ export default function App() {
   if (authLoading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-        <div role="status" className="flex flex-col items-center gap-4 rounded-xl border border-slate-200 bg-white px-10 py-8 text-center shadow-sm">
-          <span className="relative flex h-12 w-12 items-center justify-center">
-            <span className="absolute inset-0 animate-spin rounded-full border-4 border-indigo-100 border-t-indigo-600" />
-            <span className="text-xs font-extrabold text-indigo-700">TGI</span>
+        <div role="status" className="flex flex-col items-center gap-4 rounded-2xl border border-slate-200 bg-white px-10 py-8 text-center shadow-xl shadow-slate-200/50">
+          <span className="relative flex h-14 w-14 items-center justify-center overflow-hidden rounded-xl bg-black">
+            <CompanyLogo className="h-full w-full" />
+            <span className="absolute inset-0 animate-spin rounded-xl border-2 border-transparent border-t-indigo-400" />
           </span>
-          <span className="text-sm font-medium text-slate-600">Restauration de votre session…</span>
+          <span className="text-sm font-semibold text-slate-700">Vérification de votre session…</span>
+          <span className="text-xs text-slate-400">Connexion sécurisée à TGI Manager</span>
         </div>
       </main>
     );
