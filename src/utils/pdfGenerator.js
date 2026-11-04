@@ -3,7 +3,7 @@ import autoTable from "jspdf-autotable";
 
 const LAYOUT = {
   margin: 15,
-  headerHeight: 60,
+  headerHeight: 64,
   footerHeight: 40,
 };
 
@@ -130,25 +130,25 @@ function drawHeader(doc, { title, reference, issueDate, company }) {
   const pageWidth = doc.internal.pageSize.getWidth();
   const margin = LAYOUT.margin;
   const right = pageWidth - margin;
-  const companyLeft = margin + 29;
+  const companyLeft = margin + 31;
   const rightWidth = 78;
 
   doc.setFillColor(18, 35, 60);
   doc.rect(0, 0, pageWidth, 6, "F");
   doc.setFillColor(45, 114, 213);
-  doc.rect(margin, 6, 25, 0.9, "F");
+  doc.rect(margin, 6, 28, 1, "F");
   addLogo(doc, company, margin, 11);
 
   doc.setTextColor(23, 36, 58);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
+  doc.setFontSize(10.5);
   if (company.name || company.legalName) {
-    doc.text(doc.splitTextToSize(text(company.name || company.legalName), 73).slice(0, 2), companyLeft, 15);
+    doc.text(doc.splitTextToSize(text(company.name || company.legalName), 71).slice(0, 2), companyLeft, 15);
   }
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(7);
+  doc.setFontSize(7.2);
   doc.setTextColor(113, 128, 150);
-  if (company.subtitle) doc.text(doc.splitTextToSize(text(company.subtitle), 73).slice(0, 2), companyLeft, 23);
+  if (company.subtitle) doc.text(doc.splitTextToSize(text(company.subtitle), 71).slice(0, 2), companyLeft, 23);
 
   const contacts = [
     company.address,
@@ -171,38 +171,41 @@ function drawHeader(doc, { title, reference, issueDate, company }) {
 
   doc.setDrawColor(224, 231, 240);
   doc.setLineWidth(0.4);
-  doc.line(margin, 34, right, 34);
+  doc.line(margin, 35, right, 35);
   doc.setFillColor(246, 249, 253);
   doc.setDrawColor(225, 233, 243);
-  doc.roundedRect(margin, 37, pageWidth - margin * 2, 17, 2, 2, "FD");
+  doc.roundedRect(margin, 38, pageWidth - margin * 2, 18, 2, 2, "FD");
   doc.setFillColor(45, 114, 213);
-  doc.roundedRect(margin, 37, 2, 17, 1, 1, "F");
+  doc.roundedRect(margin, 38, 2, 18, 1, 1, "F");
   doc.setTextColor(23, 36, 58);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(10.5);
-  const titleLines = doc.splitTextToSize(text(title, "DOCUMENT").toLocaleUpperCase("fr-FR"), 108).slice(0, 2);
-  doc.text(titleLines, margin + 7, titleLines.length > 1 ? 43 : 46);
+  const titleText = text(title, "DOCUMENT").toLocaleUpperCase("fr-FR");
+  let titleFontSize = 11;
+  let titleLines = [];
+  while (titleFontSize >= 8.5) {
+    doc.setFontSize(titleFontSize);
+    titleLines = doc.splitTextToSize(titleText, 111);
+    if (titleLines.length <= 2) break;
+    titleFontSize -= 0.5;
+  }
+  titleLines = titleLines.slice(0, 2);
+  doc.text(titleLines, margin + 7, titleLines.length > 1 ? 44 : 48);
   doc.setDrawColor(218, 227, 238);
   doc.setLineWidth(0.35);
-  doc.line(pageWidth - margin - 57, 40, pageWidth - margin - 57, 51);
+  doc.line(pageWidth - margin - 57, 41, pageWidth - margin - 57, 53);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(6.2);
+  doc.setTextColor(45, 75, 115);
+  if (reference) doc.text("RÉFÉRENCE", right - 54, 43);
+  if (issueDate) doc.text("ÉMIS LE", right, 43, { align: "right" });
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(6.8);
+  doc.setFontSize(7);
   doc.setTextColor(80, 95, 116);
   if (reference) {
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(45, 75, 115);
-    doc.text("RÉFÉRENCE", right - 54, 43);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(80, 95, 116);
-    doc.text(doc.splitTextToSize(text(reference), 53).slice(0, 1), right - 54, 47);
+    doc.text(doc.splitTextToSize(text(reference), 53).slice(0, 1), right - 54, 48);
   }
   if (issueDate) {
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(45, 75, 115);
-    doc.text("ÉMIS LE", right, 43, { align: "right" });
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(80, 95, 116);
-    doc.text(formatDate(issueDate), right, 47, { align: "right" });
+    doc.text(formatDate(issueDate), right, 48, { align: "right" });
   }
 
   return LAYOUT.headerHeight;
@@ -394,7 +397,7 @@ function createReport({ title, reference, issueDate, company, signatures, filena
       margin: {
         left: margin,
         right: margin,
-        top: 60,
+        top: LAYOUT.headerHeight,
         bottom: 40,
       },
       startX: tableLeft,
@@ -405,12 +408,12 @@ function createReport({ title, reference, issueDate, company, signatures, filena
       styles: {
         font: "helvetica",
         fontSize: 8.5,
-        cellPadding: { top: 2.9, right: 2.6, bottom: 2.9, left: 2.6 },
+        cellPadding: { top: 3, right: 2.8, bottom: 3, left: 2.8 },
         overflow: "linebreak",
         cellWidth: "wrap",
-        lineWidth: 0.2,
-        lineColor: [225, 231, 240],
-        textColor: [53, 67, 89],
+        lineWidth: 0.15,
+        lineColor: [222, 229, 238],
+        textColor: [50, 64, 83],
         valign: "middle",
       },
       headStyles: {
@@ -422,6 +425,17 @@ function createReport({ title, reference, issueDate, company, signatures, filena
       },
       alternateRowStyles: { fillColor: [246, 249, 253] },
       theme: "grid",
+      ...(columnCount === 2 && columns?.[0] === "Information" ? {
+        columnStyles: {
+          ...columnStyles,
+          0: {
+            ...columnStyles[0],
+            fillColor: [241, 245, 250],
+            textColor: [62, 79, 102],
+            fontStyle: "bold",
+          },
+        },
+      } : {}),
       rowPageBreak: "auto",
       pageBreak: "auto",
       showHead: "everyPage",
