@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { ClipboardCheck, FileDown, LoaderCircle, Plus, Search, X } from "lucide-react";
+import { ClipboardCheck, Eye, FileDown, LoaderCircle, Plus, Search, X } from "lucide-react";
+import FileUploader from "../components/FileUploader";
+import RecordDetailsDialog from "../components/RecordDetailsDialog";
 import {
   ascenseursService,
   clientsService,
@@ -412,6 +414,7 @@ export default function InterventionsPage({ company = {}, profiles = {} }) {
   const [stockLoading, setStockLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
+  const [detailRecord, setDetailRecord] = useState(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const [actionError, setActionError] = useState("");
@@ -619,7 +622,11 @@ export default function InterventionsPage({ company = {}, profiles = {} }) {
                       <td className="max-w-[220px] px-4 py-3.5 text-slate-500"><p className="truncate" title={intervention.report || intervention.rapport}>{intervention.report || intervention.rapport || "—"}</p><p className="mt-1 text-[10px]">{(intervention.spareParts || []).length} pièce(s) · {Object.values(intervention.checklist || {}).filter((item) => typeof item === "object" ? item.checked : item).length} contrôles</p></td>
                       <td className="px-4 py-3.5"><span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-semibold ring-1 ring-inset ${STATUS_CLASSES[status] || "bg-slate-100 text-slate-600 ring-slate-200"}`}>{status}</span></td>
                       <td className="px-5 py-3.5 text-right">
+                        <div className="flex flex-wrap items-center justify-end gap-1.5">
+                        <button type="button" onClick={() => setDetailRecord(intervention)} aria-label={`Voir les détails de l’intervention ${intervention.number || ""}`} className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-2 text-[10px] font-semibold text-slate-600 transition hover:border-brand hover:text-brand"><Eye size={13} /> Détails</button>
+                        <FileUploader collectionName="interventions" recordId={intervention.id} files={intervention.attachments || []} categories={["pv de réception", "carnet d'entretien", "autre"]} />
                         <button onClick={() => exportIntervention(intervention)} aria-label={`Exporter le PDF de l’intervention ${intervention.id}`} className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-2 text-[10px] font-bold text-slate-600 transition hover:border-brand hover:bg-blue-50 hover:text-brand"><FileDown size={14} /> PDF</button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -630,6 +637,34 @@ export default function InterventionsPage({ company = {}, profiles = {} }) {
         )}
       </div>
       {actionError && <p role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-xs text-red-700">{actionError}</p>}
+      {detailRecord && <RecordDetailsDialog
+        title={`${detailRecord.interventionType || detailRecord.type || "Intervention"} · ${detailRecord.clientName || clients.find((client) => client.id === detailRecord.clientId)?.name || "Client"}`}
+        reference={detailRecord.number || detailRecord.reference || detailRecord.id}
+        onClose={() => setDetailRecord(null)}
+        sections={[
+          { title: "Planification et affectation", fields: [
+            ["Client", detailRecord.clientName],
+            ["Site", detailRecord.site?.name || detailRecord.siteAddress],
+            ["Adresse du site", [detailRecord.site?.address, detailRecord.site?.city]],
+            ["Ascenseur", [detailRecord.ascenseur?.referenceInternal || detailRecord.ascenseur?.serialNumber, detailRecord.ascenseur?.brand, detailRecord.ascenseur?.model]],
+            ["Contrat", detailRecord.contractReference],
+            ["Technicien", detailRecord.technician || detailRecord.technicien],
+            ["Date prévue / réalisée", formatDate(detailRecord.date || detailRecord.dateIntervention)],
+            ["Horaires", [detailRecord.startTime, detailRecord.endTime]],
+            ["Statut", detailRecord.status || detailRecord.statut],
+            ["Priorité", detailRecord.priority || detailRecord.priorite],
+          ] },
+          { title: "Rapport technique", fields: [
+            ["Diagnostic", detailRecord.diagnosis],
+            ["Travaux effectués", detailRecord.workPerformed || detailRecord.report || detailRecord.rapport],
+            ["Recommandations", detailRecord.recommendations],
+            ["Suivi / prochaine visite", [detailRecord.followUp, formatDate(detailRecord.nextVisitDate)]],
+            ["Pièces utilisées", (detailRecord.spareParts || []).map((part) => `${part.designation || part.description || part.name || "Pièce"} · ${part.quantity ?? 1}`)],
+            ["Contrôles", Object.entries(detailRecord.checklist || {}).map(([name, value]) => `${name} : ${typeof value === "object" ? (value.checked ? "OK" : "Non réalisé") : (value ? "OK" : "Non réalisé")}`)],
+            ["Notes", detailRecord.notes],
+          ] },
+        ]}
+      />}
       {modalOpen && <InterventionModal clients={clients} clientsLoading={clientsLoading} sites={sites} sitesLoading={sitesLoading} ascenseurs={ascenseurs} equipmentLoading={equipmentLoading} contracts={contracts} contractsLoading={contractsLoading} team={team} teamLoading={teamLoading} stock={stock} stockLoading={stockLoading} onClose={() => setModalOpen(false)} onCreate={createIntervention} saving={saving} error={formError} />}
     </section>
   );

@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Box, FileDown, History, LoaderCircle, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { AlertTriangle, Box, Eye, FileDown, History, LoaderCircle, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { createStockRecord, mouvementsStockService, stockService, updateStockMovement } from "../services/dbService";
+import FileUploader from "../components/FileUploader";
+import { formatMoney } from "../utils/currency";
+import RecordDetailsDialog from "../components/RecordDetailsDialog";
 
 const EMPTY_FORM = {
   reference: "",
@@ -105,10 +108,10 @@ function StockModal({ item, onClose, onSave, saving, error }) {
             </label>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block text-xs font-semibold text-slate-600">Prix d’achat HT (€)
+            <label className="block text-xs font-semibold text-slate-600">Prix d’achat HT (DH)
               <input required type="number" min="0" step="0.01" value={form.purchasePrice} onChange={(event) => setForm((current) => ({ ...current, purchasePrice: event.target.value }))} className={FIELD_CLASS} />
             </label>
-            <label className="block text-xs font-semibold text-slate-600">Prix unitaire HT (€)
+            <label className="block text-xs font-semibold text-slate-600">Prix unitaire HT (DH)
               <input required type="number" min="0" step="0.01" value={form.unitPrice} onChange={(event) => setForm((current) => ({ ...current, unitPrice: event.target.value }))} className={FIELD_CLASS} />
             </label>
           </div>
@@ -218,6 +221,7 @@ export default function StockPage({ company = {} }) {
   const [actionError, setActionError] = useState("");
   const [search, setSearch] = useState("");
   const [editingItem, setEditingItem] = useState(null);
+  const [detailRecord, setDetailRecord] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
@@ -388,7 +392,7 @@ export default function StockPage({ company = {} }) {
           <div className="flex items-center justify-between"><div><p className="text-xs font-medium text-muted">Alertes de stock bas</p><p className="mt-2 text-2xl font-bold text-ink">{loading ? "—" : lowStockCount}</p></div><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-50 text-rose-600"><AlertTriangle size={19} /></div></div>
         </article>
         <article className="rounded-2xl border border-line bg-white p-5 shadow-card">
-          <div className="flex items-center justify-between"><div><p className="text-xs font-medium text-muted">Valeur d’achat estimée</p><p className="mt-2 text-xl font-bold text-ink">{loading ? "—" : inventoryValue.toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</p></div><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600"><Box size={19} /></div></div>
+          <div className="flex items-center justify-between"><div><p className="text-xs font-medium text-muted">Valeur d’achat estimée</p><p className="mt-2 text-xl font-bold text-ink">{loading ? "—" : formatMoney(inventoryValue)}</p></div><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600"><Box size={19} /></div></div>
         </article>
       </div>
 
@@ -414,8 +418,8 @@ export default function StockPage({ company = {} }) {
                     <td className="px-4 py-3.5"><span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${low ? "bg-rose-50 text-rose-700 ring-1 ring-rose-200" : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"}`}>{Number(item.quantity) || 0} / {Number(item.minimumQuantity ?? 5)}{low ? " · Bas" : ""}</span></td>
                     <td className="px-4 py-3.5 text-slate-600">{item.unit || "unité"}</td>
                     <td className="px-4 py-3.5 text-slate-600">{item.location || "—"}<span className="block text-[10px] text-slate-400">{item.supplierName || ""}</span></td>
-                    <td className="whitespace-nowrap px-4 py-3.5 text-slate-600">{Number(item.purchasePrice ?? item.unitPrice ?? 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</td>
-                    <td className="px-5 py-3.5 text-right"><div className="inline-flex gap-1"><button onClick={() => { setMovementItem(item); setMovementError(""); }} aria-label={`Enregistrer un mouvement pour ${item.designation}`} className="rounded-lg p-2 text-slate-500 transition hover:bg-emerald-50 hover:text-emerald-700"><History size={14} /></button><button onClick={() => exportItem(item)} aria-label={`Exporter la fiche PDF de ${item.designation}`} className="rounded-lg p-2 text-slate-500 transition hover:bg-blue-50 hover:text-brand"><FileDown size={14} /></button><button onClick={() => openModal(item)} aria-label={`Modifier ${item.designation}`} className="rounded-lg p-2 text-slate-500 hover:bg-blue-50 hover:text-brand"><Pencil size={14} /></button><button onClick={() => deleteItem(item)} aria-label={`Supprimer ${item.designation}`} disabled={deletingId === item.id} className="rounded-lg p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"><Trash2 size={14} /></button></div></td>
+                    <td className="whitespace-nowrap px-4 py-3.5 text-slate-600">{formatMoney(item.purchasePrice ?? item.unitPrice ?? 0)}</td>
+                    <td className="px-5 py-3.5 text-right"><div className="inline-flex items-center gap-1"><button type="button" onClick={() => setDetailRecord(item)} aria-label={`Voir les détails de ${item.designation}`} className="rounded-lg p-2 text-slate-500 transition hover:bg-blue-50 hover:text-brand"><Eye size={14} /></button><FileUploader collectionName="stock" recordId={item.id} files={item.attachments || []} /><button onClick={() => { setMovementItem(item); setMovementError(""); }} aria-label={`Enregistrer un mouvement pour ${item.designation}`} className="rounded-lg p-2 text-slate-500 transition hover:bg-emerald-50 hover:text-emerald-700"><History size={14} /></button><button onClick={() => exportItem(item)} aria-label={`Exporter la fiche PDF de ${item.designation}`} className="rounded-lg p-2 text-slate-500 transition hover:bg-blue-50 hover:text-brand"><FileDown size={14} /></button><button onClick={() => openModal(item)} aria-label={`Modifier ${item.designation}`} className="rounded-lg p-2 text-slate-500 hover:bg-blue-50 hover:text-brand"><Pencil size={14} /></button><button onClick={() => deleteItem(item)} aria-label={`Supprimer ${item.designation}`} disabled={deletingId === item.id} className="rounded-lg p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"><Trash2 size={14} /></button></div></td>
                   </tr>;
                 })}
               </tbody>
@@ -454,6 +458,32 @@ export default function StockPage({ company = {} }) {
         )}
       </div>
       {actionError && <p role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-xs text-red-700">{actionError}</p>}
+      {detailRecord && <RecordDetailsDialog
+        title={detailRecord.designation || "Article de stock"}
+        reference={detailRecord.reference || detailRecord.id}
+        onClose={() => setDetailRecord(null)}
+        sections={[
+          { title: "Article", fields: [
+            ["Désignation", detailRecord.designation],
+            ["Catégorie", detailRecord.category],
+            ["Unité", detailRecord.unit],
+            ["Quantité disponible", detailRecord.quantity],
+            ["Seuil minimum", detailRecord.minimumQuantity],
+            ["Statut", detailRecord.status],
+          ] },
+          { title: "Achats et emplacement", fields: [
+            ["Prix d’achat", formatMoney(detailRecord.purchasePrice ?? detailRecord.unitPrice)],
+            ["Prix unitaire", formatMoney(detailRecord.unitPrice)],
+            ["Fournisseur", detailRecord.supplierName],
+            ["Emplacement", detailRecord.location],
+            ["Notes", detailRecord.notes],
+            ["Pièces jointes", (detailRecord.attachments || []).map((file) => file.nom || file.name)],
+          ] },
+          { title: "Mouvements récents", fields: [
+            ["Historique", sortedMovements.filter((movement) => movement.itemId === detailRecord.id).slice(0, 10).map((movement) => `${formatDate(movement.date || movement.createdAt)} · ${movement.movementType || "Mouvement"} ${movement.quantity || 0} ${movement.unit || ""} · ${movement.reason || ""}`)],
+          ] },
+        ]}
+      />}
       {modalOpen && <StockModal item={editingItem} onClose={() => { setModalOpen(false); setEditingItem(null); }} onSave={saveItem} saving={saving} error={formError} />}
       {movementItem && <StockMovementModal item={movementItem} onClose={() => setMovementItem(null)} onSave={saveMovement} saving={movementSaving} error={movementError} />}
     </section>

@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { ClipboardList, FileDown, LoaderCircle, Plus, Search, Truck, X } from "lucide-react";
+import { ClipboardList, Eye, FileDown, LoaderCircle, Plus, Search, Truck, X } from "lucide-react";
+import FileUploader from "../components/FileUploader";
+import RecordDetailsDialog from "../components/RecordDetailsDialog";
+import { formatMoney } from "../utils/currency";
 import {
   ascenseursService,
   clientsService,
@@ -206,6 +209,7 @@ function BonModal({ stock, stockLoading, bons, clients, sites, ascenseurs, devis
       taxRate: Number(form.taxRate) || 0,
       taxAmount,
       total: totalWithTax,
+      currency: "MAD",
       supplier: !usesClient ? recipient : "",
       customer: usesClient ? recipient : "",
       client: usesClient ? recipient : "",
@@ -381,7 +385,7 @@ function BonModal({ stock, stockLoading, bons, clients, sites, ascenseurs, devis
                     Prix unitaire HT
                     <input type="number" min="0" step="0.01" value={item.unitPrice || ""} onChange={(event) => updateItem(index, "unitPrice", event.target.value)} className="mt-1.5 w-full rounded-lg border border-line bg-white px-3 py-2.5 text-xs font-normal text-ink outline-none focus:border-brand" />
                   </label>
-                  <p className="pb-2 text-right text-xs font-semibold text-slate-600">{((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</p>
+                  <p className="pb-2 text-right text-xs font-semibold text-slate-600">{formatMoney((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0))}</p>
                   <button type="button" aria-label={`Supprimer la ligne ${index + 1}`} disabled={form.items.length === 1} onClick={() => removeItem(index)} className="mb-1 flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-30"><X size={15} /></button>
                 </div>
               ))}
@@ -395,10 +399,10 @@ function BonModal({ stock, stockLoading, bons, clients, sites, ascenseurs, devis
               <label className="block text-xs font-semibold text-slate-600">Remise (%)<input type="number" min="0" max="100" step="0.01" value={form.discountPercent} onChange={(event) => updateField("discountPercent", event.target.value)} className="mt-1.5 w-full rounded-lg border border-line bg-white px-3 py-2.5 text-sm font-normal text-ink outline-none focus:border-brand" /></label>
             </div>
             <dl className="mt-4 space-y-2 border-t border-line pt-3 text-xs">
-              <div className="flex justify-between"><dt className="text-slate-500">Total HT</dt><dd className="font-semibold text-ink">{subtotal.toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</dd></div>
-              <div className="flex justify-between"><dt className="text-slate-500">Remise ({form.discountPercent || 0}%)</dt><dd className="font-semibold text-rose-700">−{discountAmount.toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</dd></div>
-              <div className="flex justify-between"><dt className="text-slate-500">TVA ({form.taxRate || 0}%)</dt><dd className="font-semibold text-ink">{taxAmount.toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</dd></div>
-              <div className="flex justify-between border-t border-line pt-2 text-sm"><dt className="font-bold text-slate-700">Total TTC</dt><dd className="font-bold text-blue-700">{totalWithTax.toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</dd></div>
+              <div className="flex justify-between"><dt className="text-slate-500">Total HT</dt><dd className="font-semibold text-ink">{formatMoney(subtotal)}</dd></div>
+              <div className="flex justify-between"><dt className="text-slate-500">Remise ({form.discountPercent || 0}%)</dt><dd className="font-semibold text-rose-700">−{formatMoney(discountAmount)}</dd></div>
+              <div className="flex justify-between"><dt className="text-slate-500">TVA ({form.taxRate || 0}%)</dt><dd className="font-semibold text-ink">{formatMoney(taxAmount)}</dd></div>
+              <div className="flex justify-between border-t border-line pt-2 text-sm"><dt className="font-bold text-slate-700">Total TTC</dt><dd className="font-bold text-blue-700">{formatMoney(totalWithTax)}</dd></div>
             </dl>
           </section>
 
@@ -430,6 +434,7 @@ export default function BonsPage({ company = {}, profiles = {} }) {
   const [stockLoading, setStockLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
+  const [detailRecord, setDetailRecord] = useState(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const [actionError, setActionError] = useState("");
@@ -634,7 +639,7 @@ export default function BonsPage({ company = {}, profiles = {} }) {
                       <td className="px-4 py-3.5 text-slate-600">{recipient}<span className="block text-[10px] text-slate-400">{bon.site?.name || ""}{bon.refLiee ? ` · Lié à ${bon.refLiee}` : ""}</span></td>
                       <td className="whitespace-nowrap px-4 py-3.5 text-slate-500">{formatDate(bon.date)}</td>
                       <td className="px-4 py-3.5 text-slate-500">{items.length} {items.length === 1 ? "ligne" : "lignes"}</td>
-                      <td className="px-5 py-3.5 text-right"><button onClick={() => exportBon(bon)} aria-label={`Exporter le PDF du bon ${kind.toLocaleLowerCase("fr-FR")} ${bon.id}`} className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-2 text-[10px] font-bold text-slate-600 transition hover:border-brand hover:bg-blue-50 hover:text-brand"><FileDown size={14} /> PDF</button></td>
+                      <td className="px-5 py-3.5 text-right"><div className="flex flex-wrap items-center justify-end gap-1.5"><button type="button" onClick={() => setDetailRecord(bon)} aria-label={`Voir les détails du bon ${bon.number || bon.reference || ""}`} className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-2 text-[10px] font-semibold text-slate-600 transition hover:border-brand hover:text-brand"><Eye size={13} /> Détails</button><FileUploader collectionName="commandes" recordId={bon.id} files={bon.attachments || []} /><button onClick={() => exportBon(bon)} aria-label={`Exporter le PDF du bon ${kind.toLocaleLowerCase("fr-FR")} ${bon.id}`} className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-2 text-[10px] font-bold text-slate-600 transition hover:border-brand hover:bg-blue-50 hover:text-brand"><FileDown size={14} /> PDF</button></div></td>
                     </tr>
                   );
                 })}
@@ -644,6 +649,33 @@ export default function BonsPage({ company = {}, profiles = {} }) {
         )}
       </div>
       {actionError && <p role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-xs text-red-700">{actionError}</p>}
+      {detailRecord && <RecordDetailsDialog
+        title={`${documentType(detailRecord)} · ${detailRecord.recipient || detailRecord.clientName || detailRecord.fournisseurName || "Destinataire"}`}
+        reference={detailRecord.number || detailRecord.reference || detailRecord.id}
+        onClose={() => setDetailRecord(null)}
+        sections={[
+          { title: "Informations du bon", fields: [
+            ["Type", documentType(detailRecord)],
+            ["Date", formatDate(detailRecord.date)],
+            ["Statut", detailRecord.status],
+            ["Destinataire", detailRecord.recipient || detailRecord.clientName || detailRecord.fournisseurName],
+            ["Site", detailRecord.site?.name || detailRecord.site?.address],
+            ["Équipement", detailRecord.ascenseur?.referenceInternal || detailRecord.ascenseur?.serialNumber],
+            ["Référence liée", detailRecord.refLiee || detailRecord.relatedReference],
+            ["Échéance prévue", formatDate(detailRecord.expectedDate)],
+            ["Réception", formatDate(detailRecord.receivedAt)],
+            ["Livraison", formatDate(detailRecord.deliveredAt)],
+          ] },
+          { title: "Articles et totaux", fields: [
+            ["Lignes", (detailRecord.items || detailRecord.articles || []).map((item) => `${item.description || item.designation || "Article"} · ${item.quantity ?? 0} ${item.unit || ""} · ${formatMoney(item.total ?? (Number(item.quantity) * Number(item.unitPrice)), detailRecord.currency || "MAD")}`)],
+            ["Total HT", formatMoney(detailRecord.subtotal, detailRecord.currency || "MAD")],
+            ["Remise", `${detailRecord.discountPercent || 0}% · ${formatMoney(detailRecord.discountAmount, detailRecord.currency || "MAD")}`],
+            ["TVA", `${detailRecord.taxRate || 0}% · ${formatMoney(detailRecord.taxAmount, detailRecord.currency || "MAD")}`],
+            ["Total TTC", formatMoney(detailRecord.total, detailRecord.currency || "MAD")],
+          ] },
+          { title: "Observations", fields: [["Observations", detailRecord.observations], ["Notes", detailRecord.notes]] },
+        ]}
+      />}
       {modalOpen && <BonModal stock={stock} stockLoading={stockLoading} bons={bons} clients={clients} sites={sites} ascenseurs={ascenseurs} devis={devis} factures={factures} contrats={contrats} onClose={() => setModalOpen(false)} onCreate={createBon} saving={saving} error={formError} />}
     </section>
   );

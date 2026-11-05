@@ -12,20 +12,17 @@ import {
   YAxis,
 } from "recharts";
 import { ArrowRight } from "lucide-react";
+import { formatMoney } from "../utils/currency";
 
 const PIE_COLORS = ["#f59e0b", "#10b981"];
 
 function formatCurrency(value) {
-  return new Intl.NumberFormat("fr-FR", {
-    style: "currency",
-    currency: "EUR",
-    maximumFractionDigits: 2,
-  }).format(value);
+  return formatMoney(value);
 }
 
 function formatTrend(value) {
-  if (value >= 10000) return `${Math.round(value / 1000)} k€`;
-  if (value >= 1000) return `${(value / 1000).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} k€`;
+  if (value >= 10000) return `${Math.round(value / 1000)} k DH`;
+  if (value >= 1000) return `${(value / 1000).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} k DH`;
   return formatCurrency(value);
 }
 

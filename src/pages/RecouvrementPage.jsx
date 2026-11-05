@@ -1,6 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Download, FileCheck2, HandCoins, LoaderCircle, Plus, Search, Upload, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Download, Eye, FileCheck2, HandCoins, LoaderCircle, Plus, Search, X } from "lucide-react";
 import { clientsService, createInvoicePayment, facturesService, paiementsService, uploadPaymentProof } from "../services/dbService";
+import FileUploader from "../components/FileUploader";
+import { formatMoney } from "../utils/currency";
+import RecordDetailsDialog from "../components/RecordDetailsDialog";
 
 const EMPTY_FORM = {
   clientId: "",
@@ -25,12 +28,6 @@ function formatDate(value) {
 function dateValue(value) {
   const date = typeof value?.toDate === "function" ? value.toDate() : new Date(value || 0);
   return Number.isNaN(date.getTime()) ? 0 : date.getTime();
-}
-
-function formatAmount(value) {
-  const amount = Number(value);
-  if (!Number.isFinite(amount)) return "—";
-  return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(amount);
 }
 
 function clientIsOverdue(client) {
@@ -79,7 +76,7 @@ function PaymentModal({ clients, clientsLoading, invoices, invoicesLoading, onCl
       site: selectedInvoice?.site || null,
       ascenseurId: selectedInvoice?.ascenseurId || "",
       ascenseur: selectedInvoice?.ascenseur || null,
-      currency: selectedInvoice?.currency || "EUR",
+      currency: selectedInvoice?.currency || "MAD",
       amountDue: selectedInvoice?.total ?? 0,
       balanceDue: selectedInvoice ? invoiceBalance(selectedInvoice) : 0,
       amount: Number(form.amount),
@@ -133,14 +130,14 @@ function PaymentModal({ clients, clientsLoading, invoices, invoicesLoading, onCl
               }));
             }} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50 disabled:opacity-60">
               <option value="">{invoicesLoading ? "Chargement des factures…" : "Paiement non affecté à une facture"}</option>
-              {clientInvoices.map((invoice) => <option key={invoice.id} value={invoice.id}>{invoice.number || invoice.reference || invoice.id} · Solde {formatAmount(invoiceBalance(invoice))}</option>)}
+              {clientInvoices.map((invoice) => <option key={invoice.id} value={invoice.id}>{invoice.number || invoice.reference || invoice.id} · Solde {formatMoney(invoiceBalance(invoice), invoice.currency || "MAD")}</option>)}
             </select>
-            {selectedInvoice && <span className="mt-1.5 block text-[10px] font-normal text-slate-500">Solde restant : {formatAmount(invoiceBalance(selectedInvoice))}</span>}
+            {selectedInvoice && <span className="mt-1.5 block text-[10px] font-normal text-slate-500">Solde restant : {formatMoney(invoiceBalance(selectedInvoice), selectedInvoice.currency || "MAD")}</span>}
           </label>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block text-xs font-semibold text-slate-600">
-              Montant payé (€) <span className="text-red-500">*</span>
+              Montant payé (DH) <span className="text-red-500">*</span>
               <input required min="0.01" max={selectedInvoice ? invoiceBalance(selectedInvoice) : undefined} step="0.01" type="number" value={form.amount} onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))} placeholder="0,00" className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition placeholder:text-slate-400 focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
             </label>
             <label className="block text-xs font-semibold text-slate-600">
@@ -169,7 +166,7 @@ function PaymentModal({ clients, clientsLoading, invoices, invoicesLoading, onCl
           <label className="block text-xs font-semibold text-slate-600">
             Preuve de paiement (PDF, JPG ou PNG)
             <input type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" onChange={(event) => setForm((current) => ({ ...current, proofFile: event.target.files?.[0] || null }))} className="mt-2 block w-full rounded-xl border border-line bg-slate-50 px-3 py-2.5 text-xs font-normal text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-blue-700" />
-            <span className="mt-1 block text-[10px] font-normal text-slate-400">{form.proofFile ? form.proofFile.name : "Taille maximale : 20 Mo."}</span>
+            <span className="mt-1 block text-[10px] font-normal text-slate-400">{form.proofFile ? form.proofFile.name : "Taille maximale : 10 Mo."}</span>
           </label>
 
           {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2.5 text-xs leading-5 text-red-700">{error}</p>}
@@ -195,14 +192,12 @@ export default function RecouvrementPage({ company = {}, profiles = {} }) {
   const [invoicesLoading, setInvoicesLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
+  const [detailRecord, setDetailRecord] = useState(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const [actionError, setActionError] = useState("");
   const [search, setSearch] = useState("");
   const [paymentFilter, setPaymentFilter] = useState("Tous");
-  const [uploadingPaymentId, setUploadingPaymentId] = useState("");
-  const proofInput = useRef(null);
-  const proofPaymentId = useRef("");
 
   useEffect(() => {
     let active = true;
@@ -295,28 +290,6 @@ export default function RecouvrementPage({ company = {}, profiles = {} }) {
     }
   }
 
-  function chooseProof(paymentId) {
-    proofPaymentId.current = paymentId;
-    proofInput.current?.click();
-  }
-
-  async function attachPaymentProof(event) {
-    const file = event.target.files?.[0];
-    const paymentId = proofPaymentId.current;
-    event.target.value = "";
-    if (!file || !paymentId) return;
-    setUploadingPaymentId(paymentId);
-    setActionError("");
-    try {
-      await uploadPaymentProof(paymentId, file);
-    } catch (error) {
-      console.error("Impossible de joindre la preuve de paiement.", error);
-      setActionError("La preuve n’a pas pu être téléversée. Vérifiez le format, la taille et les règles Firebase Storage.");
-    } finally {
-      setUploadingPaymentId("");
-    }
-  }
-
   async function exportReceipt(payment) {
     setActionError("");
     try {
@@ -362,7 +335,6 @@ export default function RecouvrementPage({ company = {}, profiles = {} }) {
 
   return (
     <section className="erp-module space-y-5">
-      <input ref={proofInput} type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" onChange={attachPaymentProof} className="hidden" />
       <div className="erp-page-header flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-brand">Suivi financier</p>
@@ -389,7 +361,7 @@ export default function RecouvrementPage({ company = {}, profiles = {} }) {
         </article>
         <article className="rounded-2xl border border-line bg-white p-5 shadow-card">
           <div className="flex items-center justify-between">
-            <div><p className="text-xs font-medium text-muted">Montant total enregistré</p><p className="mt-2 text-2xl font-bold tracking-tight text-ink">{loading ? "—" : formatAmount(totalCollected)}</p></div>
+            <div><p className="text-xs font-medium text-muted">Montant total enregistré</p><p className="mt-2 text-2xl font-bold tracking-tight text-ink">{loading ? "—" : formatMoney(totalCollected)}</p></div>
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600"><HandCoins size={19} /></div>
           </div>
           <p className="mt-2 text-[11px] text-slate-400">Cumul des paiements reçus</p>
@@ -443,11 +415,14 @@ export default function RecouvrementPage({ company = {}, profiles = {} }) {
                       <td className="whitespace-nowrap px-4 py-3.5 text-slate-500">{formatDate(payment.date)}</td>
                       <td className="px-4 py-3.5 text-slate-500">{payment.period || "—"}</td>
                       <td className="px-4 py-3.5 text-slate-500">{payment.paymentMethod || payment.method || "—"}</td>
-                      <td className="whitespace-nowrap px-4 py-3.5 font-semibold text-ink">{formatAmount(payment.amount)}</td>
+                      <td className="whitespace-nowrap px-4 py-3.5 font-semibold text-ink">{formatMoney(payment.amount, payment.currency || "MAD")}</td>
                       <td className="px-4 py-3.5"><span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${overdue ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"}`}>{overdue ? "En retard" : "À jour"}</span></td>
-                      <td className="px-4 py-3.5">{(payment.proofFiles || []).length ? <div className="flex flex-col gap-1">{payment.proofFiles.map((proof, index) => <a key={`${proof.path}-${index}`} href={proof.downloadURL} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-700 hover:underline"><FileCheck2 size={12} />{proof.name || "Voir preuve"}</a>)}<button type="button" onClick={() => chooseProof(payment.id)} className="text-left text-[10px] font-semibold text-slate-500 hover:text-blue-700">Ajouter un justificatif</button></div> : <button type="button" onClick={() => chooseProof(payment.id)} disabled={uploadingPaymentId === payment.id} className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-700 hover:underline disabled:opacity-50">{uploadingPaymentId === payment.id ? <LoaderCircle size={12} className="animate-spin" /> : <Upload size={12} />}{uploadingPaymentId === payment.id ? "Envoi…" : "Joindre"}</button>}</td>
+                      <td className="px-4 py-3.5"><FileUploader collectionName="paiements" recordId={payment.id} fieldName="proofFiles" files={payment.proofFiles || []} categories={["preuve de paiement"]} buttonLabel="Preuve" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" /></td>
                       <td className="px-5 py-3.5 text-right">
-                        <button onClick={() => exportReceipt(payment)} aria-label={`Exporter le reçu PDF pour ${client?.name || payment.clientName || "ce client"}`} className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-line px-2.5 py-2 text-[10px] font-bold text-slate-600 transition hover:border-brand hover:bg-blue-50 hover:text-brand"><FileCheck2 size={14} /> PDF Reçu</button>
+                        <div className="flex flex-wrap justify-end gap-1.5">
+                          <button type="button" onClick={() => setDetailRecord(payment)} aria-label={`Voir les détails du paiement ${payment.number || payment.reference || ""}`} className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-2 text-[10px] font-semibold text-slate-600 transition hover:border-brand hover:text-brand"><Eye size={13} /> Détails</button>
+                          <button onClick={() => exportReceipt(payment)} aria-label={`Exporter le reçu PDF pour ${client?.name || payment.clientName || "ce client"}`} className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-line px-2.5 py-2 text-[10px] font-bold text-slate-600 transition hover:border-brand hover:bg-blue-50 hover:text-brand"><FileCheck2 size={14} /> PDF Reçu</button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -458,6 +433,32 @@ export default function RecouvrementPage({ company = {}, profiles = {} }) {
         )}
       </div>
       {actionError && <p role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-xs text-red-700">{actionError}</p>}
+      {detailRecord && <RecordDetailsDialog
+        title={`Paiement · ${detailRecord.clientName || clients.find((client) => client.id === detailRecord.clientId)?.name || "Client"}`}
+        reference={detailRecord.number || detailRecord.receiptNumber || detailRecord.reference || detailRecord.id}
+        onClose={() => setDetailRecord(null)}
+        sections={[
+          { title: "Règlement", fields: [
+            ["Client", detailRecord.clientName],
+            ["Facture", detailRecord.invoiceNumber || invoices.find((invoice) => invoice.id === detailRecord.factureId)?.number],
+            ["Date du paiement", formatDate(detailRecord.date)],
+            ["Montant", formatMoney(detailRecord.amount, detailRecord.currency || "MAD")],
+            ["Mode", detailRecord.paymentMethod || detailRecord.method],
+            ["Période", detailRecord.period],
+            ["Référence de transaction", detailRecord.transactionReference],
+            ["Statut", detailRecord.status],
+          ] },
+          { title: "Rapprochement et justificatifs", fields: [
+            ["Montant de la facture", formatMoney(detailRecord.amountDue, detailRecord.currency || "MAD")],
+            ["Solde après règlement", formatMoney(detailRecord.balanceDue, detailRecord.currency || "MAD")],
+            ["Échéance", formatDate(detailRecord.dueDate)],
+            ["Site", detailRecord.site?.name || detailRecord.site?.address],
+            ["Ascenseur", detailRecord.ascenseur?.referenceInternal || detailRecord.ascenseur?.serialNumber],
+            ["Preuves jointes", (detailRecord.proofFiles || []).map((file) => file.nom || file.name)],
+            ["Notes", detailRecord.notes],
+          ] },
+        ]}
+      />}
       {modalOpen && <PaymentModal clients={clients} clientsLoading={clientsLoading} invoices={invoices} invoicesLoading={invoicesLoading} onClose={() => setModalOpen(false)} onCreate={createPayment} saving={saving} error={formError} />}
     </section>
   );

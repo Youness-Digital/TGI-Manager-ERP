@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { FileDown, LoaderCircle, Pencil, Plus, Search, Trash2, UserRound, X } from "lucide-react";
+import { Eye, FileDown, LoaderCircle, Pencil, Plus, Search, Trash2, UserRound, X } from "lucide-react";
 import { equipeService } from "../services/dbService";
+import FileUploader from "../components/FileUploader";
+import RecordDetailsDialog from "../components/RecordDetailsDialog";
 
 const EMPTY_FORM = { firstName: "", lastName: "", phone: "", role: "Technicien" };
 const FIELD_CLASS = "mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50";
@@ -61,6 +63,7 @@ export default function EquipePage({ company = {} }) {
   const [actionError, setActionError] = useState("");
   const [search, setSearch] = useState("");
   const [editingMember, setEditingMember] = useState(null);
+  const [detailRecord, setDetailRecord] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
@@ -180,13 +183,31 @@ export default function EquipePage({ company = {} }) {
               <thead className="bg-slate-50 text-[9px] font-bold uppercase tracking-[0.13em] text-slate-400"><tr><th className="px-5 py-3.5">Nom</th><th className="px-4 py-3.5">Téléphone</th><th className="px-4 py-3.5">Rôle</th><th className="px-5 py-3.5 text-right">Actions</th></tr></thead>
               <tbody className="divide-y divide-line">{filteredMembers.map((member) => <tr key={member.id} className="text-xs transition hover:bg-slate-50/70">
                 <td className="px-5 py-3.5 font-semibold text-ink">{memberName(member)}</td><td className="px-4 py-3.5 text-slate-600">{member.phone || "—"}</td><td className="px-4 py-3.5"><span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${member.role === "Chef d'équipe" ? "bg-violet-50 text-violet-700" : "bg-blue-50 text-blue-700"}`}>{member.role || "Technicien"}</span></td>
-                <td className="px-5 py-3.5 text-right"><div className="inline-flex gap-1"><button onClick={() => exportMember(member)} aria-label={`Exporter la fiche PDF de ${memberName(member)}`} className="rounded-lg p-2 text-slate-500 transition hover:bg-blue-50 hover:text-brand"><FileDown size={14} /></button><button onClick={() => openModal(member)} aria-label={`Modifier ${memberName(member)}`} className="rounded-lg p-2 text-slate-500 hover:bg-blue-50 hover:text-brand"><Pencil size={14} /></button><button onClick={() => deleteMember(member)} aria-label={`Supprimer ${memberName(member)}`} disabled={deletingId === member.id} className="rounded-lg p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"><Trash2 size={14} /></button></div></td>
+                <td className="px-5 py-3.5 text-right"><div className="inline-flex items-center gap-1"><button type="button" onClick={() => setDetailRecord(member)} aria-label={`Voir la fiche de ${memberName(member)}`} className="rounded-lg p-2 text-slate-500 transition hover:bg-blue-50 hover:text-brand"><Eye size={14} /></button><FileUploader collectionName="equipe" recordId={member.id} files={member.attachments || []} /><button onClick={() => exportMember(member)} aria-label={`Exporter la fiche PDF de ${memberName(member)}`} className="rounded-lg p-2 text-slate-500 transition hover:bg-blue-50 hover:text-brand"><FileDown size={14} /></button><button onClick={() => openModal(member)} aria-label={`Modifier ${memberName(member)}`} className="rounded-lg p-2 text-slate-500 hover:bg-blue-50 hover:text-brand"><Pencil size={14} /></button><button onClick={() => deleteMember(member)} aria-label={`Supprimer ${memberName(member)}`} disabled={deletingId === member.id} className="rounded-lg p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"><Trash2 size={14} /></button></div></td>
               </tr>)}</tbody>
             </table>
           </div>
         )}
       </div>
       {actionError && <p role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-xs text-red-700">{actionError}</p>}
+      {detailRecord && <RecordDetailsDialog
+        title={memberName(detailRecord)}
+        reference={detailRecord.role || "Membre de l’équipe"}
+        onClose={() => setDetailRecord(null)}
+        sections={[
+          { title: "Informations personnelles et rôle", fields: [
+            ["Prénom", detailRecord.firstName],
+            ["Nom", detailRecord.lastName],
+            ["Téléphone", detailRecord.phone],
+            ["Rôle", detailRecord.role],
+          ] },
+          { title: "Habilitations et documents", fields: [
+            ["Pièces jointes", (detailRecord.attachments || []).map((file) => file.nom || file.name)],
+            ["Créé le", detailRecord.createdAt?.toDate ? detailRecord.createdAt.toDate().toLocaleDateString("fr-FR") : detailRecord.createdAt],
+            ["Mis à jour le", detailRecord.updatedAt?.toDate ? detailRecord.updatedAt.toDate().toLocaleDateString("fr-FR") : detailRecord.updatedAt],
+          ] },
+        ]}
+      />}
       {modalOpen && <TeamModal member={editingMember} onClose={() => { setModalOpen(false); setEditingMember(null); }} onSave={saveMember} saving={saving} error={formError} />}
     </section>
   );

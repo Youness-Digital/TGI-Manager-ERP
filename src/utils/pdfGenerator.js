@@ -44,13 +44,13 @@ function number(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function money(value, currency = "EUR") {
+function money(value, currency = "MAD") {
   const amount = number(value, NaN);
   if (!Number.isFinite(amount)) return text(value, "—");
 
   try {
     if (currency === "MAD") {
-      return `${new Intl.NumberFormat("fr-MA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)} DH`;
+      return `${new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)} DH`;
     }
     return new Intl.NumberFormat("fr-FR", { style: "currency", currency }).format(amount);
   } catch {
@@ -562,9 +562,15 @@ function recordRef(record, fallback = "") {
 }
 
 function paymentStatus(client) {
-  const explicit = client.paymentStatus || client.statutPaiement || client.status;
+  const explicit = client.paymentStatus || client.statutPaiement;
   if (explicit) return text(explicit);
-  const due = number(client.balanceDue ?? client.amountDue ?? client.remainingAmount, 0);
+  const legacyStatus = ["À jour", "En retard", "À payer", "Payé", "Impayé"].includes(client.status)
+    ? client.status
+    : "";
+  const rawBalance = client.balanceDue ?? client.amountDue ?? client.remainingAmount;
+  if (rawBalance == null) return legacyStatus || "À jour";
+  const due = number(rawBalance, NaN);
+  if (!Number.isFinite(due)) return "—";
   if (due <= 0) return "À jour";
   const rawDate = client.dueDate;
   const date = typeof rawDate?.toDate === "function"
@@ -574,7 +580,10 @@ function paymentStatus(client) {
       : rawDate
         ? new Date(rawDate)
         : null;
-  return date && !Number.isNaN(date.getTime()) && date < new Date() ? "En retard" : "À payer";
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (date && !Number.isNaN(date.getTime()) && date < today) return "En retard";
+  return legacyStatus || "À payer";
 }
 
 function clientIdentity(client) {
@@ -596,22 +605,81 @@ export function generateFicheClientPDF(client = {}, options = {}) {
   const rows = [
     ["Nom / raison sociale", name],
     ["Type de client", client.clientType || client.typeClient],
-    ["Interlocuteur principal", client.mainContact || client.contactName || client.contact],
-    ["Adresse", client.address || client.adresse],
+    ["Interlocuteur principal", client.contactName || client.mainContact || client.contact],
+    ["Fonction du contact", client.contactFunction],
+    ["Téléphone du contact", client.contactPhone || client.phone || client.telephone],
+    ["E-mail du contact", client.contactEmail || client.email],
+    ["Adresse", [client.address || client.adresse, client.city].filter(Boolean).join(" · ")],
     ["Adresse de facturation", client.billingAddress],
-    ["Téléphone", client.phone || client.telephone],
-    ["E-mail", client.email],
     ["ICE", client.ice],
     ["Registre de Commerce (RC)", client.rc],
     ["Patente", client.patente],
+    ["Identifiant fiscal (IF)", client.ifNumber],
     ["SIRET", client.siret],
     ["TVA intracommunautaire", client.vatNumber || client.tva],
-    ["Mode de paiement", client.paymentType || client.paymentFrequency || client.typePaiement],
+    ["Périodicité", client.paymentType || client.paymentFrequency || client.typePaiement],
+    ["Mode de paiement", client.paymentMode || client.paymentMethod],
+    ["Échéance", client.dueDate ? formatDate(client.dueDate) : ""],
+    ["Dernier paiement", client.lastPaymentDate || client.lastPaidAt ? formatDate(client.lastPaymentDate || client.lastPaidAt) : ""],
     ["Statut de paiement", paymentStatus(client)],
-    ["Solde dû", money(client.balanceDue ?? client.amountDue ?? client.remainingAmount)],
+    ["Solde dû", money(client.balanceDue ?? client.amountDue ?? client.remainingAmount, client.currency || "MAD")],
   ].filter(([, value]) => value !== undefined && value !== "");
   report.addSection("Coordonnées et compte", rows, { columns: ["Information", "Détail"] });
   report.addParagraph("Notes", client.notes || client.comment);
+  return report.finish();
+}
+
+export function generateFicheAscenseurPDF(elevator = {}, options = {}) {
+  const { company } = normalizeOptions(elevator, { ...options, showSignatures: false });
+  const reference = recordRef(elevator, elevator.referenceInternal || elevator.serialNumber || "ASCENSEUR");
+  const site = elevator.site || {};
+  const report = createReport({
+    title: "Fiche ascenseur",
+    reference,
+    issueDate: recordDate(elevator, ["commissioningDate", "dateMiseEnService"]),
+    company,
+    signatures: { enabled: false },
+    filename: fileName(`fiche-ascenseur-${reference}`),
+  });
+  report.addSection("Identification et rattachement", [
+    ["Référence interne", elevator.referenceInternal || elevator.number],
+    ["Numéro de série", elevator.serialNumber],
+    ["Marque", elevator.brand],
+    ["Modèle", elevator.model],
+    ["Type", elevator.type],
+    ["Client", elevator.clientName || elevator.client?.name],
+    ["Site", site.name || elevator.siteName],
+    ["Adresse du site", [site.address || elevator.siteAddress, site.city || elevator.city].filter(Boolean).join(" · ")],
+    ["Accès / étage", site.accessFloor],
+    ["Contact sur place", [site.onsiteContact, site.contactRole, site.contactPhone].filter(Boolean).join(" · ")],
+    ["État", elevator.status],
+  ], { columns: ["Information", "Détail"] });
+  report.addSection("Caractéristiques techniques", [
+    ["Nombre de niveaux / arrêts", elevator.stops],
+    ["Charge nominale", elevator.ratedLoadKg != null ? `${elevator.ratedLoadKg} kg` : ""],
+    ["Nombre de personnes", elevator.persons],
+    ["Vitesse", elevator.speedMps != null ? `${elevator.speedMps} m/s` : ""],
+    ["Machinerie", elevator.machineryType],
+    ["Type de portes", elevator.doorType],
+    ["Nombre d’accès", elevator.entrances],
+  ], { columns: ["Information", "Détail"] });
+  report.addSection("Installation et maintenance", [
+    ["Année d’installation", elevator.installationYear],
+    ["Mise en service", elevator.commissioningDate ? formatDate(elevator.commissioningDate) : ""],
+    ["Fin de garantie", elevator.warrantyEndDate ? formatDate(elevator.warrantyEndDate) : ""],
+    ["Dernière visite d’entretien", elevator.lastMaintenanceDate ? formatDate(elevator.lastMaintenanceDate) : ""],
+    ["Prochaine visite prévue", elevator.nextMaintenanceDate ? formatDate(elevator.nextMaintenanceDate) : ""],
+    ["Dernier contrôle réglementaire", elevator.lastRegulatoryInspectionDate ? formatDate(elevator.lastRegulatoryInspectionDate) : ""],
+    ["Organisme de contrôle", elevator.inspectionOrganization],
+    ["Prochain contrôle réglementaire", elevator.nextRegulatoryInspectionDate ? formatDate(elevator.nextRegulatoryInspectionDate) : ""],
+  ], { columns: ["Information", "Détail"] });
+  const attachments = (elevator.attachments || []).map((file) => file.nom || file.name).filter(Boolean);
+  if (attachments.length) {
+    report.addSection("Pièces jointes archivées", attachments.map((name) => ["Document", name]), {
+      columns: ["Information", "Détail"],
+    });
+  }
+  report.addParagraph("Notes", elevator.notes);
   return report.finish();
 }
 
@@ -767,11 +835,11 @@ export function generateRecuPaiementPDF(paiement = {}, client = {}, options = {}
     ["Référence de transaction", paiement.transactionReference || paiement.transactionId || "—"],
   ], { columns: ["Information", "Détail"] });
   report.addSection("Règlement reçu", [
-    ["Montant", money(paiement.amount ?? paiement.montant, paiement.currency || "EUR")],
+    ["Montant", money(paiement.amount ?? paiement.montant, paiement.currency || "MAD")],
     ["Période concernée", paiement.period || paiement.periode || "—"],
     ["Facture liée", paiement.invoiceNumber || paiement.documentReference || "Non affecté"],
-    ["Montant de la facture", paiement.factureId && paiement.amountDue != null ? money(paiement.amountDue, paiement.currency || "EUR") : "—"],
-    ["Solde après règlement", paiement.factureId && paiement.balanceDue != null ? money(paiement.balanceDue, paiement.currency || "EUR") : "—"],
+    ["Montant de la facture", paiement.factureId && paiement.amountDue != null ? money(paiement.amountDue, paiement.currency || "MAD") : "—"],
+    ["Solde après règlement", paiement.factureId && paiement.balanceDue != null ? money(paiement.balanceDue, paiement.currency || "MAD") : "—"],
     ["Statut", paiement.status || "Payé"],
   ], { columns: ["Information", "Détail"] });
   const proofFiles = paiement.proofFiles || (paiement.proof ? [paiement.proof] : []);

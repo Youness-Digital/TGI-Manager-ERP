@@ -11,8 +11,14 @@ import {
   setDoc,
   updateDoc,
 } from "firebase/firestore";
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
-import { db, storage } from "../firebase";
+import {
+  deleteObject,
+  getDownloadURL,
+  ref,
+  uploadBytes,
+  uploadBytesResumable,
+} from "firebase/storage";
+import { auth, db, storage } from "../firebase";
 import { createModelRecord, getModelDefinition, normalizeModelRecord } from "../models/erpModels";
 
 const COLLECTIONS = [
@@ -38,9 +44,39 @@ const DOCUMENT_MIME_TYPES = {
   ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   ".xls": "application/vnd.ms-excel",
   ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".gif": "image/gif",
 };
 const LOGO_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024;
+const MAX_CLIENT_DOCUMENT_BYTES = 10 * 1024 * 1024;
+const MAX_RECORD_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+const STORAGE_UPLOAD_TIMEOUT_MS = 60 * 1000;
+const CLIENT_DOCUMENT_CATEGORIES = new Set([
+  "contrat",
+  "devis",
+  "facture",
+  "preuve de paiement",
+  "plan",
+  "pv de réception",
+  "carnet d'entretien",
+  "autre",
+]);
+const ATTACHMENT_COLLECTIONS = new Set([
+  "clients",
+  "contrats",
+  "devis",
+  "factures",
+  "commandes",
+  "paiements",
+  "interventions",
+  "ascenseurs",
+  "stock",
+  "equipe",
+]);
 const PAYMENT_PROOF_MIME_TYPES = new Set([
   "application/pdf",
   "image/png",
@@ -256,7 +292,7 @@ export async function createInvoicePayment(record) {
       amount: roundedAmount,
       amountDue: total,
       balanceDue: nextBalance,
-      currency: invoice.currency || record.currency || "EUR",
+      currency: invoice.currency || record.currency || "MAD",
       dueDate: invoice.dueDate || "",
       status: "Payé",
     });
@@ -427,16 +463,69 @@ function uniqueStorageName(fileName) {
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-zA-Z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(-100);
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}-${safeName || "file"}`;
+    .slice(-120);
+  return `${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${safeName || "file"}`;
 }
 
-async function uploadToStorage(file, path, contentType) {
+async function uploadToStorage(file, path, contentType, onProgress, signal) {
+  if (!auth.currentUser) {
+    const error = new Error("Vous devez être connecté pour envoyer un fichier.");
+    error.code = "auth/not-authenticated";
+    throw error;
+  }
+  if (signal?.aborted) {
+    const error = new Error("L’envoi a été annulé.");
+    error.code = "storage/canceled";
+    throw error;
+  }
+
   const storageRef = ref(storage, path);
-  const snapshot = await uploadBytes(storageRef, file, {
+  const metadata = {
     contentType,
     customMetadata: { originalName: file.name },
-  });
+  };
+  let snapshot;
+  if (typeof onProgress === "function" || signal) {
+    snapshot = await new Promise((resolve, reject) => {
+      const task = uploadBytesResumable(storageRef, file, metadata);
+      let settled = false;
+      let unsubscribe = () => {};
+      const finish = (callback, value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
+        unsubscribe();
+        signal?.removeEventListener("abort", cancelUpload);
+        callback(value);
+      };
+      const cancelUpload = () => {
+        const error = new Error("L’envoi a été annulé.");
+        error.code = "storage/canceled";
+        finish(reject, error);
+        task.cancel();
+      };
+      const timeoutId = setTimeout(() => {
+        const error = new Error(`L’envoi n’a pas progressé après ${STORAGE_UPLOAD_TIMEOUT_MS / 1000} secondes.`);
+        error.code = "storage/upload-timeout";
+        finish(reject, error);
+        task.cancel();
+      }, STORAGE_UPLOAD_TIMEOUT_MS);
+
+      signal?.addEventListener("abort", cancelUpload, { once: true });
+      if (signal?.aborted) {
+        cancelUpload();
+        return;
+      }
+      unsubscribe = task.on(
+        "state_changed",
+        (state) => onProgress?.(state.totalBytes ? state.bytesTransferred / state.totalBytes : 0),
+        (error) => finish(reject, error),
+        () => finish(resolve, task.snapshot),
+      );
+    });
+  } else {
+    snapshot = await uploadBytes(storageRef, file, metadata);
+  }
   const downloadURL = await getDownloadURL(snapshot.ref);
   return {
     name: file.name,
@@ -448,25 +537,344 @@ async function uploadToStorage(file, path, contentType) {
   };
 }
 
-/** Upload un PDF, fichier Word ou Excel et lie ses métadonnées à la fiche client. */
-export async function uploadClientAttachment(clientId, file) {
+function diagnosticError(error) {
+  return {
+    code: error?.code || error?.cause?.code || "unknown",
+    message: error?.message || String(error),
+    ...(error?.serverResponse || error?.cause?.serverResponse
+      ? { serverResponse: error?.serverResponse || error?.cause?.serverResponse }
+      : {}),
+  };
+}
+
+/**
+ * Vérifie l’authentification, Storage et Firestore avec un fichier temporaire supprimé après le test.
+ */
+export async function runFirebaseUploadDiagnostic(onStage = () => {}) {
+  const user = auth.currentUser;
+  const now = Date.now();
+  const suffix = Math.random().toString(36).slice(2, 9);
+  const path = user ? `diagnostics/${user.uid}/${now}_${suffix}.txt` : "";
+  const testDocumentId = `storage-diagnostic-${now}-${suffix}`;
+  const file = new File(["TGI Manager Firebase upload diagnostic"], "tgi-storage-diagnostic.txt", {
+    type: "text/plain",
+  });
+  let uploaded = false;
+  let firestoreAttempted = false;
+
+  const report = (stage) => {
+    onStage(stage);
+    if (stage.status === "error") console.error(`[Diagnostic Firebase] ${stage.label}`, stage.error);
+    else console.info(`[Diagnostic Firebase] ${stage.label}: ${stage.status.toUpperCase()}`, stage.detail || "");
+  };
+
+  console.info("[Diagnostic Firebase] Configuration", {
+    bucket: storage.app.options.storageBucket || "(aucun bucket configuré)",
+    uid: user?.uid || "(non authentifié)",
+    path: path || "(indisponible)",
+    size: file.size,
+    type: file.type,
+  });
+
+  if (!user) {
+    const error = { code: "storage/unauthenticated", message: "Aucun utilisateur Firebase authentifié." };
+    report({ id: "session", label: "Session Firebase", status: "error", error });
+    return;
+  }
+  report({ id: "session", label: "Session Firebase", status: "ok", detail: `UID ${user.uid}` });
+
+  try {
+    const storageRef = ref(storage, path);
+    const snapshot = await new Promise((resolve, reject) => {
+      const task = uploadBytesResumable(storageRef, file, {
+        contentType: file.type,
+        customMetadata: { purpose: "temporary-diagnostic", uid: user.uid },
+      });
+      let settled = false;
+      let unsubscribe = () => {};
+      const finish = (callback, value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
+        unsubscribe();
+        callback(value);
+      };
+      const timeoutId = setTimeout(() => {
+        const error = new Error(`L’envoi de test a dépassé ${STORAGE_UPLOAD_TIMEOUT_MS / 1000} secondes.`);
+        error.code = "storage/upload-timeout";
+        finish(reject, error);
+        task.cancel();
+      }, STORAGE_UPLOAD_TIMEOUT_MS);
+      unsubscribe = task.on(
+        "state_changed",
+        (state) => console.info("[Diagnostic Firebase] Progression Storage", {
+          transferred: state.bytesTransferred,
+          total: state.totalBytes,
+        }),
+        (error) => finish(reject, error),
+        () => finish(resolve, task.snapshot),
+      );
+    });
+    uploaded = true;
+    report({ id: "storage", label: "Envoi Storage", status: "ok", detail: path });
+
+    let downloadURL;
+    try {
+      downloadURL = await getDownloadURL(snapshot.ref);
+      report({ id: "url", label: "URL de téléchargement", status: "ok", detail: "URL reçue" });
+    } catch (error) {
+      report({ id: "url", label: "URL de téléchargement", status: "error", error: diagnosticError(error) });
+      return;
+    }
+
+    try {
+      firestoreAttempted = true;
+      await setDoc(doc(db, "documents", testDocumentId), {
+        type: "diagnostic-storage",
+        nom: file.name,
+        url: downloadURL,
+        storagePath: path,
+        uid: user.uid,
+        createdAt: serverTimestamp(),
+      });
+      report({ id: "firestore", label: "Enregistrement Firestore", status: "ok", detail: `documents/${testDocumentId}` });
+    } catch (error) {
+      report({ id: "firestore", label: "Enregistrement Firestore", status: "error", error: diagnosticError(error) });
+    }
+  } catch (error) {
+    report({
+      id: "storage",
+      label: "Envoi Storage",
+      status: "error",
+      error: diagnosticError(error),
+    });
+  } finally {
+    const cleanupErrors = [];
+    if (firestoreAttempted) {
+      try {
+        await deleteDoc(doc(db, "documents", testDocumentId));
+      } catch (error) {
+        cleanupErrors.push({ target: `documents/${testDocumentId}`, error: diagnosticError(error) });
+      }
+    }
+    if (uploaded) {
+      try {
+        await deleteObject(ref(storage, path));
+      } catch (error) {
+        cleanupErrors.push({ target: path, error: diagnosticError(error) });
+      }
+    }
+    if (cleanupErrors.length) {
+      report({
+        id: "cleanup",
+        label: "Nettoyage des données de test",
+        status: "error",
+        error: cleanupErrors,
+      });
+    } else {
+      report({ id: "cleanup", label: "Nettoyage des données de test", status: "ok" });
+    }
+  }
+}
+
+async function ensureUploadWasNotCanceled(signal, path) {
+  if (!signal?.aborted) return;
+  try {
+    await deleteObject(ref(storage, path));
+  } catch (error) {
+    console.error(`L’envoi a été annulé, mais le fichier ${path} n’a pas pu être supprimé.`, error);
+    throw new Error("L’envoi a été annulé, mais le fichier Storage temporaire n’a pas pu être supprimé.", { cause: error });
+  }
+  const error = new Error("L’envoi a été annulé.");
+  error.code = "storage/canceled";
+  throw error;
+}
+
+/** Upload un document client dans Storage et lie ses métadonnées à la fiche client. */
+export async function uploadClientAttachment(clientId, file, { category = "autre", onProgress, signal } = {}) {
   if (!clientId) throw new TypeError("Un identifiant de client est requis.");
-  const contentType = getValidatedFile(file, new Set(Object.values(DOCUMENT_MIME_TYPES)), MAX_DOCUMENT_BYTES);
+  if (!CLIENT_DOCUMENT_CATEGORIES.has(category)) throw new TypeError("La catégorie de document client est invalide.");
+  const contentType = getValidatedFile(file, new Set(Object.values(DOCUMENT_MIME_TYPES)), MAX_CLIENT_DOCUMENT_BYTES);
+  if (file.size <= 0) throw new RangeError("Le fichier est vide.");
   const metadata = await uploadToStorage(
     file,
-    `clients/${clientId}/attachments/${uniqueStorageName(file.name)}`,
+    `clients/${clientId}/documents/${uniqueStorageName(file.name)}`,
     contentType,
+    onProgress,
+    signal,
   );
+  await ensureUploadWasNotCanceled(signal, metadata.path);
+  const document = {
+    nom: metadata.name,
+    url: metadata.downloadURL,
+    type: metadata.contentType,
+    taille: metadata.size,
+    categorie: category,
+    dateAjout: new Date().toISOString(),
+    path: metadata.path,
+  };
   try {
     await updateDoc(doc(db, "clients", clientId), {
-      attachments: arrayUnion(metadata),
+      documents: arrayUnion(document),
       updatedAt: serverTimestamp(),
     });
   } catch (error) {
     console.error("Le fichier a été envoyé, mais son lien n'a pas pu être enregistré sur la fiche client.", error);
+    try {
+      await deleteObject(ref(storage, metadata.path));
+    } catch (cleanupError) {
+      console.error("Le fichier orphelin n’a pas pu être supprimé après l’échec de son association au client.", cleanupError);
+    }
     throw new Error("Fichier envoyé dans Storage, mais impossible de le lier à la fiche client.", { cause: error });
   }
-  return metadata;
+  return document;
+}
+
+/** Supprime le document client de Storage et ses métadonnées Firestore. */
+export async function deleteClientAttachment(clientId, attachment) {
+  if (!clientId || !attachment || typeof attachment !== "object") {
+    throw new TypeError("Un client et un document valide sont requis pour la suppression.");
+  }
+  const storagePath = attachment.path;
+  const isDocumentPath = storagePath?.startsWith(`clients/${clientId}/documents/`);
+  const isLegacyAttachmentPath = storagePath?.startsWith(`clients/${clientId}/attachments/`);
+  if (!isDocumentPath && !isLegacyAttachmentPath) {
+    throw new TypeError("Le chemin du document client est invalide.");
+  }
+  const clientRef = doc(db, "clients", clientId);
+  const attachmentChanges = {
+    ...(isDocumentPath ? { documents: arrayRemove(attachment) } : { attachments: arrayRemove(attachment) }),
+    updatedAt: serverTimestamp(),
+  };
+  await updateDoc(clientRef, attachmentChanges);
+  try {
+    await deleteObject(ref(storage, storagePath));
+  } catch (error) {
+    if (error?.code === "storage/object-not-found") return;
+    try {
+      await updateDoc(clientRef, {
+        ...(isDocumentPath ? { documents: arrayUnion(attachment) } : { attachments: arrayUnion(attachment) }),
+        updatedAt: serverTimestamp(),
+      });
+    } catch (restoreError) {
+      console.error("Le fichier n’a pas pu être supprimé et son lien n’a pas pu être restauré sur le client.", restoreError);
+      throw new Error("La suppression du fichier a échoué et son lien n’a pas pu être restauré.", { cause: error });
+    }
+    throw new Error("Le lien du document a été restauré, mais le fichier Storage n’a pas pu être supprimé.", { cause: error });
+  }
+}
+
+/** Upload une pièce jointe d’un enregistrement ERP pris en charge. */
+export async function uploadRecordAttachment(collectionName, recordId, file, {
+  category = "autre",
+  onProgress,
+  fieldName,
+  signal,
+} = {}) {
+  if (!ATTACHMENT_COLLECTIONS.has(collectionName)) {
+    throw new TypeError(`Les pièces jointes ne sont pas prises en charge pour ${collectionName}.`);
+  }
+  if (collectionName === "clients") {
+    return uploadClientAttachment(recordId, file, { category, onProgress, signal });
+  }
+  if (!recordId) throw new TypeError("Un identifiant d’enregistrement est requis.");
+  if (!CLIENT_DOCUMENT_CATEGORIES.has(category)) throw new TypeError("La catégorie du document est invalide.");
+  const expectedField = collectionName === "paiements" ? "proofFiles" : "attachments";
+  if (fieldName && fieldName !== expectedField) {
+    throw new TypeError(`Le champ de pièces jointes autorisé pour ${collectionName} est ${expectedField}.`);
+  }
+  const isPaymentProof = collectionName === "paiements";
+  const allowedTypes = isPaymentProof
+    ? PAYMENT_PROOF_MIME_TYPES
+    : new Set(Object.values(DOCUMENT_MIME_TYPES));
+  const paymentFallback = {
+    ".pdf": "application/pdf",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+  }[file?.name?.toLowerCase().match(/\.[a-z0-9]+$/)?.[0] || ""];
+  const contentType = getValidatedFile(file, allowedTypes, MAX_RECORD_ATTACHMENT_BYTES, paymentFallback);
+  if (file.size <= 0) throw new RangeError("Le fichier est vide.");
+  const metadata = await uploadToStorage(
+    file,
+    `records/${collectionName}/${recordId}/documents/${uniqueStorageName(file.name)}`,
+    contentType,
+    onProgress,
+    signal,
+  );
+  await ensureUploadWasNotCanceled(signal, metadata.path);
+  const attachment = {
+    nom: metadata.name,
+    url: metadata.downloadURL,
+    type: metadata.contentType,
+    taille: metadata.size,
+    categorie: category,
+    dateAjout: metadata.uploadedAt,
+    path: metadata.path,
+    name: metadata.name,
+    downloadURL: metadata.downloadURL,
+    contentType: metadata.contentType,
+    size: metadata.size,
+    uploadedAt: metadata.uploadedAt,
+  };
+  try {
+    await updateDoc(doc(db, collectionName, recordId), {
+      [expectedField]: arrayUnion(attachment),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    console.error(`Le fichier a été envoyé, mais son lien n'a pas pu être enregistré dans ${collectionName}/${recordId}.`, error);
+    try {
+      await deleteObject(ref(storage, metadata.path));
+    } catch (cleanupError) {
+      console.error("Le fichier orphelin n’a pas pu être supprimé après l’échec de son association.", cleanupError);
+    }
+    throw new Error("Fichier envoyé dans Storage, mais impossible de le lier à l’enregistrement.", { cause: error });
+  }
+  return attachment;
+}
+
+/** Supprime les métadonnées et le fichier Storage associé à un enregistrement ERP. */
+export async function deleteRecordAttachment(collectionName, recordId, attachment, fieldName) {
+  if (!ATTACHMENT_COLLECTIONS.has(collectionName) || collectionName === "clients") {
+    if (collectionName === "clients") return deleteClientAttachment(recordId, attachment);
+    throw new TypeError(`Les pièces jointes ne sont pas prises en charge pour ${collectionName}.`);
+  }
+  if (!recordId || !attachment || typeof attachment !== "object") {
+    throw new TypeError("Un enregistrement et une pièce jointe valide sont requis pour la suppression.");
+  }
+  const expectedField = collectionName === "paiements" ? "proofFiles" : "attachments";
+  if (fieldName && fieldName !== expectedField) {
+    throw new TypeError(`Le champ de pièces jointes autorisé pour ${collectionName} est ${expectedField}.`);
+  }
+  const storagePath = attachment.path;
+  const currentPath = `records/${collectionName}/${recordId}/documents/`;
+  const legacyPaths = collectionName === "paiements"
+    ? [`payments/${recordId}/proofs/`]
+    : collectionName === "ascenseurs"
+      ? [`ascenseurs/${recordId}/attachments/`]
+      : [];
+  const isCurrent = storagePath?.startsWith(currentPath);
+  const isLegacy = legacyPaths.some((path) => storagePath?.startsWith(path));
+  if (!isCurrent && !isLegacy) throw new TypeError("Le chemin de la pièce jointe est invalide.");
+  const recordRef = doc(db, collectionName, recordId);
+  const removeField = { [expectedField]: arrayRemove(attachment), updatedAt: serverTimestamp() };
+  await updateDoc(recordRef, removeField);
+  try {
+    await deleteObject(ref(storage, storagePath));
+  } catch (error) {
+    if (error?.code === "storage/object-not-found") return;
+    try {
+      await updateDoc(recordRef, {
+        [expectedField]: arrayUnion(attachment),
+        updatedAt: serverTimestamp(),
+      });
+    } catch (restoreError) {
+      console.error("Le lien de la pièce jointe n’a pas pu être restauré après l’échec de la suppression Storage.", restoreError);
+      throw new Error("La suppression a échoué et le lien de la pièce jointe n’a pas pu être restauré.", { cause: error });
+    }
+    throw new Error("Le lien de la pièce jointe a été restauré, mais le fichier Storage n’a pas pu être supprimé.", { cause: error });
+  }
 }
 
 /** Upload un plan, PV ou document technique et le lie à un ascenseur. */
@@ -495,7 +903,7 @@ export async function uploadPaymentProof(paymentId, file) {
   if (!paymentId) throw new TypeError("Un identifiant de paiement est requis.");
   const extension = file?.name?.toLowerCase().match(/\.[a-z0-9]+$/)?.[0] || "";
   const fallbackType = { ".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg" }[extension];
-  const contentType = getValidatedFile(file, PAYMENT_PROOF_MIME_TYPES, MAX_DOCUMENT_BYTES, fallbackType);
+  const contentType = getValidatedFile(file, PAYMENT_PROOF_MIME_TYPES, MAX_RECORD_ATTACHMENT_BYTES, fallbackType);
   const metadata = await uploadToStorage(
     file,
     `payments/${paymentId}/proofs/${uniqueStorageName(file.name)}`,

@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { FileDown, FileText, LoaderCircle, Plus, Search, X } from "lucide-react";
+import { Eye, FileDown, FileText, LoaderCircle, Plus, Search, X } from "lucide-react";
 import { ascenseursService, clientsService, contratsService, devisService, sitesService } from "../services/dbService";
+import FileUploader from "../components/FileUploader";
+import RecordDetailsDialog from "../components/RecordDetailsDialog";
+import { formatMoney } from "../utils/currency";
 
 const CONTRACT_TEMPLATES = {
   "Installation|Simple": {
@@ -70,12 +73,6 @@ function formatDate(value) {
   if (!value) return "—";
   const date = typeof value?.toDate === "function" ? value.toDate() : new Date(value);
   return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString("fr-FR");
-}
-
-function formatAmount(value) {
-  const amount = Number(value);
-  if (!Number.isFinite(amount)) return "—";
-  return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(amount);
 }
 
 function ContractModal({ clients, sites, elevators, quotes, clientsLoading, onClose, onCreate, saving, error }) {
@@ -154,6 +151,7 @@ function ContractModal({ clients, sites, elevators, quotes, clientsLoading, onCl
       startDate: form.startDate,
       endDate: form.endDate,
       amount: Number(form.amount),
+      currency: "MAD",
       elevatorBrand: form.elevatorBrand.trim(),
       capacityKg: Number(form.capacityKg) || 0,
       floorCount: Number(form.floorCount) || 0,
@@ -267,7 +265,7 @@ function ContractModal({ clients, sites, elevators, quotes, clientsLoading, onCl
                 className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50 disabled:opacity-60"
               >
                 <option value="">Aucun devis associé</option>
-                {clientQuotes.map((quote) => <option key={quote.id} value={quote.id}>{quote.number || quote.reference} · {formatAmount(quote.total)}</option>)}
+                {clientQuotes.map((quote) => <option key={quote.id} value={quote.id}>{quote.number || quote.reference} · {formatMoney(quote.total, quote.currency || "MAD")}</option>)}
               </select>
             </label>
             <label className="block text-xs font-semibold text-slate-600 sm:col-span-2">
@@ -327,7 +325,7 @@ function ContractModal({ clients, sites, elevators, quotes, clientsLoading, onCl
               <input type="date" min={form.startDate || undefined} value={form.endDate} onChange={(event) => setForm((current) => ({ ...current, endDate: event.target.value }))} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
             </label>
             <label className="block text-xs font-semibold text-slate-600 sm:col-span-2">
-              Montant (€) <span className="text-red-500">*</span>
+              Montant (DH) <span className="text-red-500">*</span>
               <input required min="0" step="0.01" type="number" value={form.amount} onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))} placeholder="0,00" className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition placeholder:text-slate-400 focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
             </label>
             <label className="block text-xs font-semibold text-slate-600">
@@ -418,6 +416,7 @@ export default function ContratsPage({ company = {}, profiles = {} }) {
   const [loadError, setLoadError] = useState("");
   const [relationsError, setRelationsError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
+  const [detailRecord, setDetailRecord] = useState(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const [actionError, setActionError] = useState("");
@@ -580,10 +579,14 @@ export default function ContratsPage({ company = {}, profiles = {} }) {
                       <td className="px-4 py-3.5 text-slate-500"><p>{contract.capacityKg ? `${contract.capacityKg} kg` : "Charge —"}</p><p className="mt-1 text-[10px]">{contract.floorCount ? `${contract.floorCount} niveaux` : "Niveaux —"}</p></td>
                       <td className="px-4 py-3.5 text-slate-500">{contract.maintenanceFrequency || "—"}</td>
                       <td className="whitespace-nowrap px-4 py-3.5 text-slate-500">{formatDate(contract.startDate || contract.dateDebut)} – {formatDate(contract.endDate || contract.dateFin)}</td>
-                      <td className="whitespace-nowrap px-4 py-3.5 font-semibold text-ink">{formatAmount(contract.amount ?? contract.montant)}</td>
+                      <td className="whitespace-nowrap px-4 py-3.5 font-semibold text-ink">{formatMoney(contract.amount ?? contract.montant, contract.currency || "MAD")}</td>
                       <td className="px-4 py-3.5"><span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${contract.status === "Résilié" ? "bg-rose-50 text-rose-700" : contract.status === "Suspendu" ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700"}`}>{contract.status || "Actif"}</span></td>
                       <td className="px-5 py-3.5 text-right">
+                        <div className="flex flex-wrap items-center justify-end gap-1.5">
+                        <button type="button" onClick={() => setDetailRecord(contract)} aria-label={`Voir les détails du contrat ${contract.number || ""}`} className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-2 text-[10px] font-semibold text-slate-600 transition hover:border-brand hover:text-brand"><Eye size={13} /> Détails</button>
+                        <FileUploader collectionName="contrats" recordId={contract.id} files={contract.attachments || []} categories={["contrat", "autre"]} />
                         <button onClick={() => exportContract(contract)} aria-label={`Exporter le PDF du contrat ${contract.id}`} className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-2 text-[10px] font-bold text-slate-600 transition hover:border-brand hover:bg-blue-50 hover:text-brand"><FileDown size={14} /> PDF</button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -594,6 +597,37 @@ export default function ContratsPage({ company = {}, profiles = {} }) {
         )}
       </div>
       {actionError && <p role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-xs text-red-700">{actionError}</p>}
+      {detailRecord && <RecordDetailsDialog
+        title={`${detailRecord.contractType || detailRecord.type || "Contrat"} · ${detailRecord.clientName || clients.find((client) => client.id === detailRecord.clientId)?.name || "Client"}`}
+        reference={detailRecord.number || detailRecord.reference || detailRecord.id}
+        onClose={() => setDetailRecord(null)}
+        sections={[
+          { title: "Parties et équipement", fields: [
+            ["Client", detailRecord.clientName],
+            ["Adresse du client", detailRecord.clientAddress],
+            ["Site", detailRecord.siteName || detailRecord.site?.name || detailRecord.siteAddress],
+            ["Équipement", [detailRecord.ascenseur?.brand || detailRecord.elevatorBrand, detailRecord.ascenseur?.model, detailRecord.ascenseur?.serialNumber || detailRecord.serialNumber]],
+            ["Devis associé", detailRecord.devisReference],
+          ] },
+          { title: "Conditions contractuelles", fields: [
+            ["Catégorie", detailRecord.category],
+            ["Date du contrat", formatDate(detailRecord.date)],
+            ["Début", formatDate(detailRecord.startDate || detailRecord.dateDebut)],
+            ["Fin", formatDate(detailRecord.endDate || detailRecord.dateFin)],
+            ["Durée", detailRecord.duration],
+            ["Montant", formatMoney(detailRecord.amount ?? detailRecord.montant, detailRecord.currency || "MAD")],
+            ["Modalités de paiement", detailRecord.paymentTerms],
+            ["Fréquence de maintenance", detailRecord.maintenanceFrequency],
+            ["Statut", detailRecord.status],
+          ] },
+          { title: "Prestations et conditions particulières", fields: [
+            ["Objet", detailRecord.description],
+            ["Prestations", (detailRecord.scopeItems || []).map((item) => `${item.description || ""}${item.quantity ? ` · ${item.quantity} ${item.unit || ""}` : ""}`)],
+            ["Conditions particulières", detailRecord.specialConditions],
+            ["Notes", detailRecord.notes],
+          ] },
+        ]}
+      />}
       {modalOpen && <ContractModal clients={clients} sites={sites} elevators={elevators} quotes={quotes} clientsLoading={clientsLoading} onClose={() => setModalOpen(false)} onCreate={createContract} saving={saving} error={formError} />}
     </section>
   );

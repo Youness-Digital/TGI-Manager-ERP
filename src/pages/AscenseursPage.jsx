@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Building2, Cog, LoaderCircle, MapPin, Paperclip, Plus, Search, Trash2, Upload, X } from "lucide-react";
-import { ascenseursService, clientsService, sitesService, uploadElevatorAttachment } from "../services/dbService";
+import { useEffect, useMemo, useState } from "react";
+import { Building2, Cog, Eye, FileDown, LoaderCircle, MapPin, Plus, Search, Trash2, X } from "lucide-react";
+import { ascenseursService, clientsService, sitesService } from "../services/dbService";
+import FileUploader from "../components/FileUploader";
+import RecordDetailsDialog from "../components/RecordDetailsDialog";
 
 const FIELD_CLASS = "mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50";
 const ELEVATOR_TYPES = [
@@ -315,7 +317,7 @@ function ElevatorModal({ elevator, clients, sites, onClose, onSave, saving, erro
   );
 }
 
-export default function AscenseursPage() {
+export default function AscenseursPage({ company = {} }) {
   const [elevators, setElevators] = useState([]);
   const [clients, setClients] = useState([]);
   const [sites, setSites] = useState([]);
@@ -328,12 +330,11 @@ export default function AscenseursPage() {
   const [elevatorModalOpen, setElevatorModalOpen] = useState(false);
   const [siteModalOpen, setSiteModalOpen] = useState(false);
   const [editingElevator, setEditingElevator] = useState(null);
+  const [detailRecord, setDetailRecord] = useState(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
-  const [uploadingId, setUploadingId] = useState("");
   const [deletingId, setDeletingId] = useState("");
-  const attachmentInput = useRef(null);
-  const attachmentElevatorId = useRef("");
+  const [exportingId, setExportingId] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -419,6 +420,21 @@ export default function AscenseursPage() {
     }
   }
 
+  async function exportElevator(elevator) {
+    setActionError("");
+    setExportingId(elevator.id);
+    try {
+      const { generateFicheAscenseurPDF, prepareCompanyForPdf } = await import("../utils/pdfGenerator");
+      const readyCompany = await prepareCompanyForPdf(company);
+      generateFicheAscenseurPDF(elevator, { company: readyCompany });
+    } catch (error) {
+      console.error("Impossible de générer la fiche PDF de l’ascenseur.", error);
+      setActionError("La fiche PDF de cet ascenseur n’a pas pu être générée. Vérifiez le logo de l’entreprise et réessayez.");
+    } finally {
+      setExportingId("");
+    }
+  }
+
   function openElevatorModal(elevator = null) {
     setEditingElevator(elevator);
     setFormError("");
@@ -439,39 +455,11 @@ export default function AscenseursPage() {
     }
   }
 
-  function chooseAttachments(elevatorId) {
-    attachmentElevatorId.current = elevatorId;
-    attachmentInput.current?.click();
-  }
-
-  async function uploadAttachments(event) {
-    const files = Array.from(event.target.files || []);
-    const elevatorId = attachmentElevatorId.current;
-    event.target.value = "";
-    if (!files.length || !elevatorId) return;
-    setUploadingId(elevatorId);
-    setActionError("");
-    try {
-      const results = await Promise.allSettled(files.map((file) => uploadElevatorAttachment(elevatorId, file)));
-      const failures = results.filter((result) => result.status === "rejected");
-      failures.forEach((result) => console.error("Une pièce jointe d’ascenseur n’a pas pu être téléversée.", result.reason));
-      if (failures.length) {
-        setActionError(`${failures.length} fichier(s) sur ${files.length} n’ont pas été téléversés. Vérifiez le format PDF/Word/Excel et la taille maximale.`);
-      }
-    } catch (error) {
-      console.error("Impossible de téléverser les pièces jointes de l’ascenseur.", error);
-      setActionError("Les fichiers n’ont pas pu être téléversés.");
-    } finally {
-      setUploadingId("");
-    }
-  }
-
   const activeCount = elevators.filter((elevator) => (elevator.status || "En service") === "En service").length;
   const downCount = elevators.filter((elevator) => ["En panne", "À l'arrêt"].includes(elevator.status)).length;
 
   return (
     <section className="erp-module space-y-5">
-      <input ref={attachmentInput} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx" multiple className="hidden" onChange={uploadAttachments} />
       <header className="erp-page-header flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="mb-2 flex items-center gap-2 text-xs font-semibold text-brand"><Cog size={16} /> Parc installé</p>
@@ -544,14 +532,13 @@ export default function AscenseursPage() {
                       <td className="whitespace-nowrap px-4 py-3.5 text-slate-500">{dateLabel(elevator.nextRegulatoryInspectionDate)}</td>
                       <td className="px-4 py-3.5"><span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${statusClass}`}>{status}</span></td>
                       <td className="px-5 py-3.5">
-                        <div className="flex justify-end gap-1.5">
+                        <div className="flex flex-wrap justify-end gap-1.5">
+                          <button type="button" onClick={() => setDetailRecord(elevator)} aria-label={`Voir les détails de l’ascenseur ${elevator.number || ""}`} className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-2 text-[10px] font-semibold text-slate-600 hover:border-brand hover:text-brand"><Eye size={13} /> Détails</button>
                           <button type="button" onClick={() => openElevatorModal(elevator)} className="rounded-lg border border-line px-2.5 py-2 text-[10px] font-semibold text-slate-600 hover:border-brand hover:text-brand">Modifier</button>
-                          <button type="button" onClick={() => chooseAttachments(elevator.id)} disabled={uploadingId === elevator.id} aria-label="Joindre plans ou documents" className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-2 text-[10px] font-semibold text-slate-600 hover:border-brand hover:text-brand disabled:opacity-50">
-                            {uploadingId === elevator.id ? <LoaderCircle size={12} className="animate-spin" /> : <Upload size={12} />}<span>{elevator.attachments?.length || 0}</span>
-                          </button>
+                          <FileUploader collectionName="ascenseurs" recordId={elevator.id} files={elevator.attachments || []} categories={["plan", "pv de réception", "carnet d'entretien", "autre"]} buttonLabel="Fichiers" />
+                          <button type="button" onClick={() => exportElevator(elevator)} disabled={exportingId === elevator.id} className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-2 text-[10px] font-semibold text-slate-600 hover:border-brand hover:text-brand disabled:opacity-50">{exportingId === elevator.id ? <LoaderCircle size={12} className="animate-spin" /> : <FileDown size={12} />} PDF</button>
                           <button type="button" onClick={() => deleteElevator(elevator)} disabled={deletingId === elevator.id} aria-label="Supprimer l’ascenseur" className="rounded-lg border border-line p-2 text-slate-400 hover:border-rose-200 hover:text-rose-600 disabled:opacity-50"><Trash2 size={13} /></button>
                         </div>
-                        {elevator.attachments?.length > 0 && <div className="mt-2 flex max-w-64 flex-wrap justify-end gap-1">{elevator.attachments.map((file, index) => <a key={`${file.path || file.name}-${index}`} href={file.downloadURL} target="_blank" rel="noreferrer" title={file.name} className="inline-flex max-w-full items-center gap-1 rounded bg-slate-100 px-1.5 py-1 text-[9px] text-slate-600 hover:text-brand"><Paperclip size={10} /><span className="max-w-28 truncate">{file.name}</span></a>)}</div>}
                       </td>
                     </tr>
                   );
@@ -562,6 +549,45 @@ export default function AscenseursPage() {
         )}
       </div>
       {actionError && <p role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-xs text-red-700">{actionError}</p>}
+      {detailRecord && <RecordDetailsDialog
+        title={`${detailRecord.brand || "Ascenseur"} ${detailRecord.model || ""}`.trim()}
+        reference={detailRecord.number || detailRecord.referenceInternal || detailRecord.serialNumber || detailRecord.id}
+        onClose={() => setDetailRecord(null)}
+        sections={[
+          { title: "Parc et site", fields: [
+            ["Client", detailRecord.clientName || clients.find((client) => client.id === detailRecord.clientId)?.name],
+            ["Immeuble / résidence", detailRecord.site?.name || sites.find((site) => site.id === detailRecord.siteId)?.name],
+            ["Adresse", detailRecord.site?.address || sites.find((site) => site.id === detailRecord.siteId)?.address],
+            ["Ville", detailRecord.site?.city || sites.find((site) => site.id === detailRecord.siteId)?.city],
+            ["Contact sur place", [detailRecord.site?.onsiteContact, detailRecord.site?.contactRole, detailRecord.site?.contactPhone]],
+            ["Étage d’accès", detailRecord.site?.accessFloor],
+          ] },
+          { title: "Caractéristiques techniques", fields: [
+            ["N° de série", detailRecord.serialNumber],
+            ["Type", detailRecord.type],
+            ["Niveaux / arrêts", detailRecord.stops],
+            ["Charge nominale", detailRecord.ratedLoadKg ? `${detailRecord.ratedLoadKg} kg` : ""],
+            ["Capacité", detailRecord.persons ? `${detailRecord.persons} personnes` : ""],
+            ["Vitesse", detailRecord.speedMps ? `${detailRecord.speedMps} m/s` : ""],
+            ["Machinerie", detailRecord.machineryType],
+            ["Portes", detailRecord.doorType],
+            ["Nombre d’accès", detailRecord.entrances],
+            ["État", detailRecord.status],
+          ] },
+          { title: "Dates et conformité", fields: [
+            ["Année d’installation", detailRecord.installationYear],
+            ["Mise en service", dateLabel(detailRecord.commissioningDate)],
+            ["Fin de garantie", dateLabel(detailRecord.warrantyEndDate)],
+            ["Dernier entretien", dateLabel(detailRecord.lastMaintenanceDate)],
+            ["Prochain entretien", dateLabel(detailRecord.nextMaintenanceDate)],
+            ["Dernier contrôle", dateLabel(detailRecord.lastRegulatoryInspectionDate)],
+            ["Organisme de contrôle", detailRecord.inspectionOrganization],
+            ["Prochain contrôle", dateLabel(detailRecord.nextRegulatoryInspectionDate)],
+            ["Pièces jointes", (detailRecord.attachments || []).map((file) => file.nom || file.name)],
+            ["Notes", detailRecord.notes],
+          ] },
+        ]}
+      />}
       {siteModalOpen && <SiteModal clients={clients} onClose={() => setSiteModalOpen(false)} onSave={saveSite} saving={saving} error={formError} />}
       {elevatorModalOpen && <ElevatorModal elevator={editingElevator} clients={clients} sites={sites} onClose={() => { setElevatorModalOpen(false); setEditingElevator(null); }} onSave={saveElevator} saving={saving} error={formError} />}
     </section>

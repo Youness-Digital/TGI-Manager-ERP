@@ -197,7 +197,7 @@ export default function App() {
           )}
           {activePage === "ascenseurs" && (
             <Suspense fallback={<div className="flex min-h-56 items-center justify-center text-sm text-muted">Chargement du parc ascenseurs…</div>}>
-              <AscenseursPage />
+              <AscenseursPage company={company} />
             </Suspense>
           )}
           {activePage === "contrats" && (

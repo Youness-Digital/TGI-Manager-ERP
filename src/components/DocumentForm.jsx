@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { Eye, FileDown, FileText, LoaderCircle, Plus, Printer, ReceiptText, Trash2 } from "lucide-react";
 import CompanyLogo from "./CompanyLogo";
 import DocumentLayout, { DocumentTable } from "./DocumentLayout";
+import FileUploader from "./FileUploader";
 import { ascenseursService, clientsService, devisService, facturesService, sitesService } from "../services/dbService";
+import RecordDetailsDialog from "./RecordDetailsDialog";
 
 const FIELD_CLASS = "mt-2 w-full min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm font-normal text-slate-800 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-50";
 
@@ -68,13 +70,14 @@ export default function DocumentForm({ profiles, company }) {
   const [pdfResources, setPdfResources] = useState(null);
   const [pdfLoadError, setPdfLoadError] = useState("");
   const [showPreview, setShowPreview] = useState(false);
+  const [detailDocument, setDetailDocument] = useState(null);
   const subtotal = items.reduce((sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), 0);
   const discountAmount = subtotal * (Number(discountPercent) || 0) / 100;
   const taxableAmount = subtotal - discountAmount;
   const taxAmount = taxableAmount * (Number(taxRate) || 0) / 100;
   const totalWithTax = taxableAmount + taxAmount;
   const formatMoney = (value, currency = "MAD") => currency === "MAD"
-    ? `${value.toLocaleString("fr-MA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} DH`
+    ? `${value.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} DH`
     : value.toLocaleString("fr-FR", { style: "currency", currency });
   const selectedClient = clients.find((client) => client.id === selectedClientId);
   const clientSites = sites.filter((site) => site.clientId === selectedClientId);
@@ -798,7 +801,7 @@ export default function DocumentForm({ profiles, company }) {
                     <td className="whitespace-nowrap px-4 py-3.5 text-slate-600"><p>{formatDocumentDate(quote.issueDate || quote.date)}</p><p className="mt-1 text-[10px] text-slate-400">Valable au {formatDocumentDate(quote.validUntil)}</p></td>
                     <td className="whitespace-nowrap px-4 py-3.5 font-semibold text-slate-800">{formatMoney(Number(quote.total) || 0, quote.currency || "MAD")}</td>
                     <td className="px-4 py-3.5"><span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[10px] font-semibold text-indigo-700">{quote.status || "Brouillon"}</span></td>
-                    <td className="px-5 py-3.5 text-right"><button type="button" onClick={() => exportSavedQuote(quote)} disabled={!pdfResources} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-[10px] font-semibold text-slate-600 hover:border-indigo-200 hover:text-indigo-700 disabled:opacity-50"><FileDown size={13} /> Télécharger</button></td>
+                    <td className="px-5 py-3.5 text-right"><div className="flex flex-wrap items-center justify-end gap-1.5"><button type="button" onClick={() => setDetailDocument({ kind: "Devis", record: quote })} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-2 text-[10px] font-semibold text-slate-600 hover:border-indigo-200 hover:text-indigo-700"><Eye size={13} /> Détails</button><FileUploader collectionName="devis" recordId={quote.id} files={quote.attachments || []} categories={["devis", "autre"]} /><button type="button" onClick={() => exportSavedQuote(quote)} disabled={!pdfResources} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-[10px] font-semibold text-slate-600 hover:border-indigo-200 hover:text-indigo-700 disabled:opacity-50"><FileDown size={13} /> Télécharger</button></div></td>
                   </tr>
                 ))}
               </tbody>
@@ -834,7 +837,7 @@ export default function DocumentForm({ profiles, company }) {
                     <td className="whitespace-nowrap px-4 py-3.5 font-semibold text-slate-800">{formatMoney(Number(invoice.total) || 0, invoice.currency || "MAD")}</td>
                     <td className="whitespace-nowrap px-4 py-3.5 text-slate-600"><p>{formatMoney(Number(invoice.paidAmount) || 0, invoice.currency || "MAD")}</p><p className="mt-1 text-[10px] text-rose-600">Solde {formatMoney(Number(invoice.balanceDue) || 0, invoice.currency || "MAD")}</p></td>
                     <td className="px-4 py-3.5"><span className="rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-semibold text-amber-700">{invoice.status || "À payer"}</span></td>
-                    <td className="px-5 py-3.5 text-right"><button type="button" onClick={() => exportSavedInvoice(invoice)} disabled={!pdfResources} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-[10px] font-semibold text-slate-600 hover:border-indigo-200 hover:text-indigo-700 disabled:opacity-50"><FileDown size={13} /> Télécharger</button></td>
+                    <td className="px-5 py-3.5 text-right"><div className="flex flex-wrap items-center justify-end gap-1.5"><button type="button" onClick={() => setDetailDocument({ kind: "Facture", record: invoice })} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-2 text-[10px] font-semibold text-slate-600 hover:border-indigo-200 hover:text-indigo-700"><Eye size={13} /> Détails</button><FileUploader collectionName="factures" recordId={invoice.id} files={invoice.attachments || []} categories={["facture", "preuve de paiement", "autre"]} /><button type="button" onClick={() => exportSavedInvoice(invoice)} disabled={!pdfResources} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-[10px] font-semibold text-slate-600 hover:border-indigo-200 hover:text-indigo-700 disabled:opacity-50"><FileDown size={13} /> Télécharger</button></div></td>
                   </tr>
                 ))}
               </tbody>
@@ -843,6 +846,38 @@ export default function DocumentForm({ profiles, company }) {
         )}
       </section>
     )}
+    {detailDocument && <RecordDetailsDialog
+      title={`${detailDocument.kind} · ${detailDocument.record.clientName || detailDocument.record.client?.name || "Client"}`}
+      reference={detailDocument.record.number || detailDocument.record.reference || detailDocument.record.id}
+      onClose={() => setDetailDocument(null)}
+      sections={[
+        { title: "Client et équipement", fields: [
+          ["Client", detailDocument.record.clientName || detailDocument.record.client?.name],
+          ["Adresse", detailDocument.record.clientAddress || detailDocument.record.client?.address],
+          ["ICE / IF / RC", [detailDocument.record.clientIce || detailDocument.record.client?.ice, detailDocument.record.clientIfNumber || detailDocument.record.client?.ifNumber, detailDocument.record.clientRc || detailDocument.record.client?.rc]],
+          ["Téléphone / email", [detailDocument.record.clientPhone || detailDocument.record.client?.phone, detailDocument.record.clientEmail || detailDocument.record.client?.email]],
+          ["Site", [detailDocument.record.site?.name, detailDocument.record.site?.address, detailDocument.record.site?.city]],
+          ["Ascenseur", [detailDocument.record.ascenseur?.referenceInternal || detailDocument.record.ascenseur?.number, detailDocument.record.ascenseur?.brand, detailDocument.record.ascenseur?.model, detailDocument.record.ascenseur?.serialNumber]],
+        ] },
+        { title: "Lignes et montants", fields: [
+          ["Articles / prestations", (detailDocument.record.items || []).map((item) => `${item.description || item.designation || "Ligne"} · ${item.quantity ?? 0} ${item.unit || ""} · ${formatMoney(item.total ?? Number(item.quantity) * Number(item.unitPrice), detailDocument.record.currency || "MAD")}`)],
+          ["Total HT", formatMoney(detailDocument.record.subtotal, detailDocument.record.currency || "MAD")],
+          ["Remise", `${detailDocument.record.discountPercent || 0}% · ${formatMoney(detailDocument.record.discountAmount, detailDocument.record.currency || "MAD")}`],
+          ["TVA", `${detailDocument.record.taxRate || 0}% · ${formatMoney(detailDocument.record.taxAmount, detailDocument.record.currency || "MAD")}`],
+          ["Total TTC", formatMoney(detailDocument.record.total, detailDocument.record.currency || "MAD")],
+          ["Déjà réglé", formatMoney(detailDocument.record.paidAmount, detailDocument.record.currency || "MAD")],
+          ["Solde", formatMoney(detailDocument.record.balanceDue, detailDocument.record.currency || "MAD")],
+        ] },
+        { title: "Suivi", fields: [
+          ["Date d’émission", formatDocumentDate(detailDocument.record.issueDate || detailDocument.record.date)],
+          [detailDocument.kind === "Devis" ? "Valide jusqu’au" : "Échéance", formatDocumentDate(detailDocument.kind === "Devis" ? detailDocument.record.validUntil : detailDocument.record.dueDate)],
+          ["Statut", detailDocument.record.status],
+          ["Conditions", detailDocument.record.terms],
+          ["Notes", detailDocument.record.notes],
+          ["Pièces jointes", (detailDocument.record.attachments || []).map((file) => file.nom || file.name)],
+        ] },
+      ]}
+    />}
     {showPreview && (
       <section className="document-print-root mx-auto mt-8 w-full max-w-[1320px]">
         <div className="mb-3 flex justify-end print:hidden">

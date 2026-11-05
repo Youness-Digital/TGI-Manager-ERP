@@ -1,0 +1,111 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function acceptedBusinessFile() {
+      return request.resource.contentType in [
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'image/png',
+        'image/jpeg',
+        'image/webp',
+        'image/gif'
+      ];
+    }
+
+    function acceptedPaymentProof() {
+      return request.resource.contentType in [
+        'application/pdf',
+        'image/png',
+        'image/jpeg'
+      ];
+    }
+
+    match /clients/{clientId}/documents/{filePath=**} {
+      allow read, delete: if signedIn();
+      allow create, update: if signedIn()
+        && request.resource.size > 0
+        && request.resource.size <= 10 * 1024 * 1024
+        && acceptedBusinessFile();
+    }
+
+    match /clients/{clientId}/attachments/{filePath=**} {
+      allow read, delete: if signedIn();
+      allow create, update: if signedIn()
+        && request.resource.size > 0
+        && request.resource.size <= 10 * 1024 * 1024
+        && acceptedBusinessFile();
+    }
+
+    match /ascenseurs/{elevatorId}/attachments/{filePath=**} {
+      allow read, delete: if signedIn();
+      allow create, update: if signedIn()
+        && request.resource.size > 0
+        && request.resource.size <= 10 * 1024 * 1024
+        && acceptedBusinessFile();
+    }
+
+    match /payments/{paymentId}/proofs/{filePath=**} {
+      allow read, delete: if signedIn();
+      allow create, update: if signedIn()
+        && request.resource.size > 0
+        && request.resource.size <= 10 * 1024 * 1024
+        && (request.resource.contentType.matches('application/pdf')
+          || request.resource.contentType.matches('image/png')
+          || request.resource.contentType.matches('image/jpeg'));
+    }
+
+    match /company-assets/{filePath=**} {
+      allow read, delete: if signedIn();
+      allow create, update: if signedIn()
+        && request.resource.size > 0
+        && request.resource.size <= 5 * 1024 * 1024
+        && request.resource.contentType in ['image/png', 'image/jpeg', 'image/webp'];
+    }
+
+    match /records/{collectionName}/{recordId}/documents/{filePath=**} {
+      allow read, delete: if signedIn()
+        && collectionName in [
+          'contrats',
+          'devis',
+          'factures',
+          'commandes',
+          'paiements',
+          'interventions',
+          'ascenseurs',
+          'stock',
+          'equipe'
+        ];
+      allow create, update: if signedIn()
+        && collectionName in [
+          'contrats',
+          'devis',
+          'factures',
+          'commandes',
+          'paiements',
+          'interventions',
+          'ascenseurs',
+          'stock',
+          'equipe'
+        ]
+        && request.resource.size > 0
+        && request.resource.size <= 10 * 1024 * 1024
+        && (collectionName == 'paiements' ? acceptedPaymentProof() : acceptedBusinessFile());
+    }
+
+    match /diagnostics/{userId}/{filePath=**} {
+      allow read, delete: if signedIn() && request.auth.uid == userId;
+      allow create, update: if signedIn()
+        && request.auth.uid == userId
+        && request.resource.size > 0
+        && request.resource.size <= 10 * 1024 * 1024
+        && request.resource.contentType == 'text/plain';
+    }
+  }
+}

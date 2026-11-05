@@ -22,6 +22,7 @@ import {
   interventionsService,
   paiementsService,
 } from "../services/dbService";
+import { formatMoney } from "../utils/currency";
 
 const EMPTY_DATA = {
   clients: [],
@@ -105,11 +106,7 @@ function formatDate(value) {
 }
 
 function formatCurrency(value) {
-  return new Intl.NumberFormat("fr-FR", {
-    style: "currency",
-    currency: "EUR",
-    maximumFractionDigits: 2,
-  }).format(value);
+  return formatMoney(value);
 }
 
 function makeMonthKey(date) {
