@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { FileDown, FileText, LoaderCircle, Plus, Search, X } from "lucide-react";
-import { clientsService, contratsService } from "../services/dbService";
+import { ascenseursService, clientsService, contratsService, devisService, sitesService } from "../services/dbService";
 
 const CONTRACT_TEMPLATES = {
   "Installation|Simple": {
@@ -43,6 +43,10 @@ function createInitialForm() {
   const template = CONTRACT_TEMPLATES["Installation|Simple"];
   return {
     clientId: "",
+    siteId: "",
+    ascenseurId: "",
+    devisId: "",
+    date: dateInputValue(new Date()),
     siteAddress: "",
     contractType: "Installation",
     category: "Simple",
@@ -74,8 +78,12 @@ function formatAmount(value) {
   return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(amount);
 }
 
-function ContractModal({ clients, clientsLoading, onClose, onCreate, saving, error }) {
+function ContractModal({ clients, sites, elevators, quotes, clientsLoading, onClose, onCreate, saving, error }) {
   const [form, setForm] = useState(createInitialForm);
+  const [validationError, setValidationError] = useState("");
+  const clientSites = sites.filter((site) => site.clientId === form.clientId);
+  const siteElevators = elevators.filter((elevator) => elevator.siteId === form.siteId);
+  const clientQuotes = quotes.filter((quote) => quote.clientId === form.clientId);
 
   function applyTemplate(contractType = form.contractType, category = form.category) {
     const template = CONTRACT_TEMPLATES[`${contractType}|${category}`];
@@ -93,11 +101,54 @@ function ContractModal({ clients, clientsLoading, onClose, onCreate, saving, err
   function submit(event) {
     event.preventDefault();
     const client = clients.find((entry) => entry.id === form.clientId);
-    if (!client) return;
+    const site = clientSites.find((entry) => entry.id === form.siteId);
+    const elevator = siteElevators.find((entry) => entry.id === form.ascenseurId);
+    const quote = clientQuotes.find((entry) => entry.id === form.devisId);
+    setValidationError("");
+    if (!client || (form.siteId && !site) || (form.ascenseurId && !elevator) || (form.devisId && !quote)) {
+      setValidationError("Vérifiez le client et les liens sélectionnés (site, ascenseur, devis).");
+      return;
+    }
+    if (form.endDate && form.startDate && form.endDate < form.startDate) {
+      setValidationError("La date de fin ne peut pas précéder la date de début.");
+      return;
+    }
+    if (!Number.isFinite(Number(form.amount)) || Number(form.amount) < 0) {
+      setValidationError("Le montant du contrat doit être un nombre positif ou nul.");
+      return;
+    }
     onCreate({
       clientId: client.id,
       clientName: client.name || "Client",
-      siteAddress: form.siteAddress.trim(),
+      clientAddress: client.address || "",
+      siteId: site?.id || "",
+      siteName: site?.name || "",
+      site: site ? {
+        name: site.name || "",
+        address: site.address || "",
+        city: site.city || "",
+        accessFloor: site.accessFloor || "",
+        onsiteContact: site.onsiteContact || "",
+        contactRole: site.contactRole || "",
+        contactPhone: site.contactPhone || "",
+      } : null,
+      siteAddress: form.siteAddress.trim() || [site?.name, site?.address, site?.city].filter(Boolean).join(", "),
+      ascenseurId: elevator?.id || "",
+      ascenseur: elevator ? {
+        number: elevator.number || "",
+        referenceInternal: elevator.referenceInternal || "",
+        serialNumber: elevator.serialNumber || "",
+        brand: elevator.brand || "",
+        model: elevator.model || "",
+        type: elevator.type || "",
+        stops: Number(elevator.stops) || 0,
+        ratedLoadKg: Number(elevator.ratedLoadKg) || 0,
+        persons: Number(elevator.persons) || 0,
+        speedMps: Number(elevator.speedMps) || 0,
+      } : null,
+      devisId: quote?.id || "",
+      devisReference: quote?.number || quote?.reference || "",
+      date: form.date,
       contractType: form.contractType,
       category: form.category,
       startDate: form.startDate,
@@ -147,7 +198,19 @@ function ContractModal({ clients, clientsLoading, onClose, onCreate, saving, err
             <select
               required
               value={form.clientId}
-              onChange={(event) => setForm((current) => ({ ...current, clientId: event.target.value }))}
+              onChange={(event) => setForm((current) => ({
+                ...current,
+                clientId: event.target.value,
+                siteId: "",
+                ascenseurId: "",
+                devisId: "",
+                siteAddress: "",
+                amount: "",
+                elevatorBrand: "",
+                capacityKg: "",
+                floorCount: "",
+                serialNumber: "",
+              }))}
               disabled={clientsLoading || !hasClients}
               className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50 disabled:opacity-60"
             >
@@ -156,6 +219,80 @@ function ContractModal({ clients, clientsLoading, onClose, onCreate, saving, err
             </select>
             {!clientsLoading && !hasClients && <span className="mt-1.5 block text-[11px] font-normal text-amber-700">Créez d’abord une fiche client pour pouvoir établir un contrat.</span>}
           </label>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block text-xs font-semibold text-slate-600">
+              Site / immeuble
+              <select
+                value={form.siteId}
+                onChange={(event) => {
+                  const site = sites.find((entry) => entry.id === event.target.value);
+                  setForm((current) => ({
+                    ...current,
+                    siteId: event.target.value,
+                    ascenseurId: "",
+                    siteAddress: [site?.name, site?.address, site?.city].filter(Boolean).join(", "),
+                  }));
+                }}
+                disabled={!form.clientId}
+                className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50 disabled:opacity-60"
+              >
+                <option value="">Aucun site sélectionné</option>
+                {clientSites.map((site) => <option key={site.id} value={site.id}>{site.name} · {site.city || "Ville non renseignée"}</option>)}
+              </select>
+            </label>
+            <label className="block text-xs font-semibold text-slate-600">
+              Devis associé
+              <select
+                value={form.devisId}
+                onChange={(event) => {
+                  const quote = clientQuotes.find((entry) => entry.id === event.target.value);
+                  const quoteSite = sites.find((entry) => entry.id === quote?.siteId);
+                  const quoteElevator = elevators.find((entry) => entry.id === quote?.ascenseurId);
+                  setForm((current) => ({
+                    ...current,
+                    devisId: event.target.value,
+                    amount: quote ? String(quote.total || 0) : current.amount,
+                    paymentTerms: quote?.terms || current.paymentTerms,
+                    siteId: quote?.siteId || current.siteId,
+                    siteAddress: quoteSite ? [quoteSite.name, quoteSite.address, quoteSite.city].filter(Boolean).join(", ") : current.siteAddress,
+                    ascenseurId: quote?.ascenseurId || current.ascenseurId,
+                    elevatorBrand: quoteElevator?.brand || current.elevatorBrand,
+                    capacityKg: quoteElevator ? String(quoteElevator.ratedLoadKg || "") : current.capacityKg,
+                    floorCount: quoteElevator ? String(quoteElevator.stops || "") : current.floorCount,
+                    serialNumber: quoteElevator?.serialNumber || current.serialNumber,
+                  }));
+                }}
+                disabled={!form.clientId}
+                className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50 disabled:opacity-60"
+              >
+                <option value="">Aucun devis associé</option>
+                {clientQuotes.map((quote) => <option key={quote.id} value={quote.id}>{quote.number || quote.reference} · {formatAmount(quote.total)}</option>)}
+              </select>
+            </label>
+            <label className="block text-xs font-semibold text-slate-600 sm:col-span-2">
+              Ascenseur concerné
+              <select
+                value={form.ascenseurId}
+                onChange={(event) => {
+                  const elevator = siteElevators.find((entry) => entry.id === event.target.value);
+                  setForm((current) => ({
+                    ...current,
+                    ascenseurId: event.target.value,
+                    elevatorBrand: elevator?.brand || "",
+                    capacityKg: elevator ? String(elevator.ratedLoadKg || "") : "",
+                    floorCount: elevator ? String(elevator.stops || "") : "",
+                    serialNumber: elevator?.serialNumber || "",
+                  }));
+                }}
+                disabled={!form.siteId}
+                className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50 disabled:opacity-60"
+              >
+                <option value="">Aucun ascenseur sélectionné (ex. nouvelle installation)</option>
+                {siteElevators.map((elevator) => <option key={elevator.id} value={elevator.id}>{elevator.number || elevator.referenceInternal || "Ascenseur"} · {elevator.brand || "Marque"} {elevator.model || ""}</option>)}
+              </select>
+            </label>
+          </div>
 
           <label className="block text-xs font-semibold text-slate-600">
             Adresse du site / nom de l’immeuble <span className="text-red-500">*</span>
@@ -176,6 +313,10 @@ function ContractModal({ clients, clientsLoading, onClose, onCreate, saving, err
                 <option value="Simple">Contrat Simple</option>
                 <option value="Complet">Contrat Complet</option>
               </select>
+            </label>
+            <label className="block text-xs font-semibold text-slate-600">
+              Date du contrat
+              <input type="date" value={form.date} onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
             </label>
             <label className="block text-xs font-semibold text-slate-600">
               Date de début <span className="text-red-500">*</span>
@@ -252,7 +393,7 @@ function ContractModal({ clients, clientsLoading, onClose, onCreate, saving, err
             </label>
           </section>
 
-          {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2.5 text-xs leading-5 text-red-700">{error}</p>}
+          {(error || validationError) && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2.5 text-xs leading-5 text-red-700">{error || validationError}</p>}
           <div className="flex flex-col-reverse gap-2 border-t border-line pt-5 sm:flex-row sm:justify-end">
             <button type="button" onClick={onClose} disabled={saving} className="rounded-xl border border-line px-4 py-2.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50">Annuler</button>
             <button type="submit" disabled={saving || !hasClients || clientsLoading} className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand px-4 py-2.5 text-xs font-bold text-white transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-60">
@@ -269,9 +410,13 @@ function ContractModal({ clients, clientsLoading, onClose, onCreate, saving, err
 export default function ContratsPage({ company = {}, profiles = {} }) {
   const [contracts, setContracts] = useState([]);
   const [clients, setClients] = useState([]);
+  const [sites, setSites] = useState([]);
+  const [elevators, setElevators] = useState([]);
+  const [quotes, setQuotes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [clientsLoading, setClientsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  const [relationsError, setRelationsError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
@@ -307,11 +452,38 @@ export default function ContratsPage({ company = {}, profiles = {} }) {
         setLoadError("La liste des clients n’a pas pu être chargée. Vérifiez la connexion et les règles Firestore.");
       },
     );
+    const unsubscribeSites = sitesService.subscribe(
+      (records) => { if (active) setSites(records); },
+      (error) => {
+        if (!active) return;
+        console.error("Impossible de charger les sites pour les contrats.", error);
+        setRelationsError("La liste des sites n’est pas disponible.");
+      },
+    );
+    const unsubscribeElevators = ascenseursService.subscribe(
+      (records) => { if (active) setElevators(records); },
+      (error) => {
+        if (!active) return;
+        console.error("Impossible de charger les ascenseurs pour les contrats.", error);
+        setRelationsError("La liste des ascenseurs n’est pas disponible.");
+      },
+    );
+    const unsubscribeQuotes = devisService.subscribe(
+      (records) => { if (active) setQuotes(records); },
+      (error) => {
+        if (!active) return;
+        console.error("Impossible de charger les devis pour les contrats.", error);
+        setRelationsError("La liste des devis n’est pas disponible.");
+      },
+    );
 
     return () => {
       active = false;
       unsubscribeContracts();
       unsubscribeClients();
+      unsubscribeSites();
+      unsubscribeElevators();
+      unsubscribeQuotes();
     };
   }, []);
 
@@ -319,7 +491,7 @@ export default function ContratsPage({ company = {}, profiles = {} }) {
     const query = search.trim().toLocaleLowerCase("fr-FR");
     if (!query) return contracts;
     return contracts.filter((contract) =>
-      [contract.clientName, contract.contractType, contract.category, contract.amount, contract.elevatorBrand, contract.serialNumber, contract.status]
+      [contract.number, contract.clientName, contract.contractType, contract.category, contract.amount, contract.elevatorBrand, contract.serialNumber, contract.siteName, contract.site?.name, contract.devisReference, contract.status]
         .some((value) => String(value ?? "").toLocaleLowerCase("fr-FR").includes(query)),
     );
   }, [contracts, search]);
@@ -377,6 +549,7 @@ export default function ContratsPage({ company = {}, profiles = {} }) {
           </label>
         </div>
 
+        {relationsError && <p role="alert" className="mx-5 mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">{relationsError} Vous pouvez toujours saisir le site manuellement.</p>}
         {loadError ? (
           <div role="alert" className="m-5 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-xs leading-5 text-red-700">{loadError}</div>
         ) : loading ? (
@@ -401,7 +574,7 @@ export default function ContratsPage({ company = {}, profiles = {} }) {
                   const category = contract.category || contract.categorie;
                   return (
                     <tr key={contract.id} className="text-xs transition hover:bg-slate-50/70">
-                      <td className="px-5 py-3.5"><p className="font-semibold text-ink">{client?.name || contract.clientName || "Client"}</p><p className="mt-1 text-[10px] text-slate-500">{contract.siteAddress || "Site non précisé"}</p><p className="mt-1 text-[10px] text-slate-400">{contract.elevatorBrand || "Marque —"} · S/N {contract.serialNumber || "—"}</p></td>
+                      <td className="px-5 py-3.5"><p className="font-semibold text-ink">{client?.name || contract.clientName || "Client"} <span className="font-mono text-[9px] text-slate-400">{contract.number || ""}</span></p><p className="mt-1 text-[10px] text-slate-500">{contract.siteName || contract.site?.name || contract.siteAddress || "Site non précisé"}</p><p className="mt-1 text-[10px] text-slate-400">{contract.ascenseur?.number || contract.ascenseur?.referenceInternal || contract.elevatorBrand || "Ascenseur non lié"}{contract.ascenseur?.serialNumber || contract.serialNumber ? ` · S/N ${contract.ascenseur?.serialNumber || contract.serialNumber}` : ""}</p><p className="mt-1 text-[10px] text-slate-400">{contract.devisReference ? `Devis ${contract.devisReference}` : "Sans devis associé"}</p></td>
                       <td className="px-4 py-3.5"><span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-semibold text-blue-700">{contractType || "—"}</span></td>
                       <td className="whitespace-nowrap px-4 py-3.5 text-slate-500">{category ? `Contrat ${category}` : "—"}</td>
                       <td className="px-4 py-3.5 text-slate-500"><p>{contract.capacityKg ? `${contract.capacityKg} kg` : "Charge —"}</p><p className="mt-1 text-[10px]">{contract.floorCount ? `${contract.floorCount} niveaux` : "Niveaux —"}</p></td>
@@ -421,7 +594,7 @@ export default function ContratsPage({ company = {}, profiles = {} }) {
         )}
       </div>
       {actionError && <p role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-xs text-red-700">{actionError}</p>}
-      {modalOpen && <ContractModal clients={clients} clientsLoading={clientsLoading} onClose={() => setModalOpen(false)} onCreate={createContract} saving={saving} error={formError} />}
+      {modalOpen && <ContractModal clients={clients} sites={sites} elevators={elevators} quotes={quotes} clientsLoading={clientsLoading} onClose={() => setModalOpen(false)} onCreate={createContract} saving={saving} error={formError} />}
     </section>
   );
 }

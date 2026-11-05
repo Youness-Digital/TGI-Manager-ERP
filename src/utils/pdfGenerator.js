@@ -1,6 +1,6 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { formatDateSafe } from "./dateUtils";
+import { formatDateSafe } from "./dateUtils.js";
 
 const LAYOUT = {
   margin: 15,
@@ -49,6 +49,9 @@ function money(value, currency = "EUR") {
   if (!Number.isFinite(amount)) return text(value, "—");
 
   try {
+    if (currency === "MAD") {
+      return `${new Intl.NumberFormat("fr-MA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)} DH`;
+    }
     return new Intl.NumberFormat("fr-FR", { style: "currency", currency }).format(amount);
   } catch {
     return `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(amount)} ${currency}`;
@@ -56,6 +59,42 @@ function money(value, currency = "EUR") {
 }
 
 const formatDate = formatDateSafe;
+
+function recordDate(record, fields = []) {
+  for (const field of [...fields, "date", "issueDate", "dateEmission", "dateReception", "paidAt", "receivedAt", "deliveredAt", "createdAt"]) {
+    const value = record?.[field];
+    if (value != null && value !== "" && formatDate(value) !== "—") return value;
+  }
+  return new Date();
+}
+
+function referenceValue(record, fallback = "") {
+  const candidates = [
+    record?.number,
+    record?.numero,
+    record?.receiptNumber,
+    record?.invoiceNumber,
+    record?.quoteNumber,
+    record?.contractNumber,
+    record?.orderNumber,
+    record?.deliveryNumber,
+    record?.documentNumber,
+    record?.reference,
+  ];
+  const usable = candidates.find((candidate) => {
+    const value = text(candidate).trim();
+    const looksLikeId = /^[a-z0-9]{20}$/i.test(value);
+    return value && value !== text(record?.id).trim() && !value.includes("...") && !value.includes("…") && !looksLikeId;
+  });
+  if (usable) return text(usable).trim();
+  const id = text(record?.id).trim();
+  if (id) return id.slice(0, 8).toLocaleUpperCase("en-US");
+  const legacyReference = text(record?.reference).replace(/(?:\.{3}|…).*$/, "").trim();
+  if (legacyReference) return legacyReference.slice(0, 8).toLocaleUpperCase("en-US");
+  const fallbackText = text(fallback, "DOCUMENT").trim();
+  if (/^[a-z]{2,5}-\d{4}-\d+$/i.test(fallbackText)) return fallbackText;
+  return fallbackText.slice(0, 8).toLocaleUpperCase("en-US") || "DOCUMENT";
+}
 
 function fileName(value, fallback = "document-tgi") {
   const normalized = text(value, fallback)
@@ -178,41 +217,61 @@ function drawHeader(doc, { title, reference, issueDate, company }) {
   doc.line(margin, 35, right, 35);
   doc.setFillColor(248, 250, 252);
   doc.setDrawColor(226, 232, 240);
-  doc.roundedRect(margin, 38, pageWidth - margin * 2, 18, 1.5, 1.5, "FD");
+  const bandX = margin;
+  const bandY = 38;
+  const bandWidth = pageWidth - margin * 2;
+  const innerLeft = bandX + 8;
+  const innerRight = bandX + bandWidth - 5;
+  const dateWidth = 34;
+  const referenceWidth = 43;
+  const dateLeft = innerRight - dateWidth;
+  const referenceLeft = dateLeft - referenceWidth;
+  const referenceTextLeft = referenceLeft + 4;
+  const dateTextLeft = dateLeft + 4;
+  const titleRight = referenceLeft - 4;
+  const titleWidth = titleRight - innerLeft;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7);
+  const referenceLines = doc.splitTextToSize(text(reference, "DOCUMENT"), referenceWidth - 7);
+  const dateLines = doc.splitTextToSize(formatDate(issueDate), dateWidth - 8);
+  const valueLineHeight = 3.4;
+  const bandHeight = Math.max(18, 10 + Math.max(referenceLines.length, dateLines.length) * valueLineHeight);
+  doc.roundedRect(bandX, bandY, bandWidth, bandHeight, 1.5, 1.5, "FD");
   doc.setFillColor(37, 99, 235);
-  doc.rect(margin, 38, 2.8, 18, "F");
+  doc.rect(bandX, bandY, 2.8, bandHeight, "F");
+
+  doc.setDrawColor(229, 231, 235);
+  doc.setLineWidth(0.65);
+  doc.line(referenceLeft, bandY + 2, referenceLeft, bandY + bandHeight - 2);
+  doc.line(dateLeft, bandY + 2, dateLeft, bandY + bandHeight - 2);
+
   doc.setTextColor(23, 36, 58);
   doc.setFont("helvetica", "bold");
   const titleText = text(title, "DOCUMENT").toLocaleUpperCase("fr-FR");
   let titleFontSize = 11;
   let titleLines = [];
-  while (titleFontSize >= 8.5) {
+  while (titleFontSize >= 8) {
     doc.setFontSize(titleFontSize);
-    titleLines = doc.splitTextToSize(titleText, 94);
+    titleLines = doc.splitTextToSize(titleText, titleWidth);
     if (titleLines.length <= 2) break;
     titleFontSize -= 0.5;
   }
-  titleLines = titleLines.slice(0, 2);
-  doc.text(titleLines, margin + 7, titleLines.length > 1 ? 44 : 48);
-  doc.setDrawColor(229, 231, 235);
-  doc.setLineWidth(0.65);
-  doc.line(pageWidth - margin - 57, 40, pageWidth - margin - 57, 54);
+  titleLines = doc.splitTextToSize(titleText, titleWidth).slice(0, 2);
+  const titleY = titleLines.length > 1 ? bandY + 6.5 : bandY + 10.5;
+  doc.text(titleLines, innerLeft, titleY, { maxWidth: titleWidth });
+
   doc.setFont("helvetica", "bold");
   doc.setFontSize(6.2);
   doc.setTextColor(107, 114, 128);
-  if (reference) doc.text("RÉFÉRENCE", right - 54, 43);
-  if (issueDate) doc.text("ÉMIS LE", right, 43, { align: "right" });
+  doc.text("RÉFÉRENCE", referenceTextLeft, bandY + 5);
+  doc.text("ÉMIS LE", dateTextLeft, bandY + 5);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7);
   doc.setTextColor(80, 95, 116);
-  if (reference) {
-    doc.text(doc.splitTextToSize(text(reference), 53).slice(0, 1), right - 54, 48);
-  }
-  if (issueDate) {
-    doc.text(formatDate(issueDate), right, 48, { align: "right" });
-  }
+  doc.text(referenceLines, referenceTextLeft, bandY + 10, { lineHeightFactor: 1.1 });
+  doc.text(dateLines, dateTextLeft, bandY + 10, { lineHeightFactor: 1.1 });
 
-  return LAYOUT.headerHeight;
+  return LAYOUT.headerHeight + Math.max(0, bandHeight - 18);
 }
 
 function drawSignatureBox(doc, { x, y, width, title, person }) {
@@ -336,6 +395,7 @@ function createReport({ title, reference, issueDate, company, signatures, filena
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = LAYOUT.margin;
   const tableWidth = pageWidth - margin * 2;
+  issueDate = formatDate(issueDate) === "—" ? new Date() : issueDate;
   let cursorY = drawHeader(doc, { title, reference, issueDate, company });
 
   function drawPageChrome(pageNumber, pageCount, includeSignatures = false) {
@@ -356,6 +416,18 @@ function createReport({ title, reference, issueDate, company, signatures, filena
     autoColumn,
     alignRight = false,
   } = {}) {
+    const isBlankValue = (value) => {
+      if (value == null) return true;
+      return typeof value === "string" && ["", "—", "–", "-"].includes(value.trim());
+    };
+    const informationDetailTable = columns?.[0] === "Information" && columns?.[1] === "Détail";
+    const visibleRows = rows.filter((row) => (
+      Array.isArray(row)
+      && row.some((value) => !isBlankValue(value))
+      && (!informationDetailTable || !isBlankValue(row[1]))
+    ));
+    if (!visibleRows.length) return cursorY;
+
     if (sectionTitle) {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(8.8);
@@ -373,7 +445,7 @@ function createReport({ title, reference, issueDate, company, signatures, filena
     }
 
     const head = columns ? [columns.map((column) => text(column))] : undefined;
-    const columnCount = head?.[0]?.length || rows[0]?.length || 1;
+    const columnCount = head?.[0]?.length || visibleRows[0]?.length || 1;
     const requestedWidths = widths || Array.from({ length: columnCount }, () => tableWidth / columnCount);
     if (requestedWidths.length !== columnCount || requestedWidths.some((width) => !Number.isFinite(width) || width <= 0)) {
       throw new RangeError("Les largeurs du tableau doivent être positives et correspondre au nombre de colonnes.");
@@ -385,16 +457,18 @@ function createReport({ title, reference, issueDate, company, signatures, filena
     const tableLeft = alignRight ? pageWidth - margin - sectionWidth : margin;
     const fixedIndices = requestedWidths.map((_, index) => index).filter((index) => index !== autoColumn);
     const fixedTotal = fixedIndices.reduce((sum, index) => sum + requestedWidths[index], 0);
-    const autoPreferredWidth = autoColumn == null ? 0 : requestedWidths[autoColumn];
+    const autoPreferredWidth = autoColumn == null
+      ? 0
+      : fixedIndices.length === 0
+        ? sectionWidth
+        : Math.min(requestedWidths[autoColumn], Math.max(0, sectionWidth - fixedIndices.length * 8));
     const fixedScale = fixedTotal > 0 ? Math.max(0, sectionWidth - autoPreferredWidth) / fixedTotal : 1;
     const resolvedWidths = requestedWidths.map((width, index) => (
       index === autoColumn ? autoPreferredWidth : width * (autoColumn == null ? sectionWidth / fixedTotal : fixedScale)
     ));
     const columnStyles = Object.fromEntries(resolvedWidths.map((width, index) => [
       index,
-      index === autoColumn
-        ? { cellWidth: "auto", minCellWidth: width }
-        : { cellWidth: width },
+      { cellWidth: width },
     ]));
     autoTable(doc, {
       startY: startY ?? cursorY,
@@ -407,7 +481,7 @@ function createReport({ title, reference, issueDate, company, signatures, filena
       startX: tableLeft,
       tableWidth: sectionWidth,
       head,
-      body: rows.length ? rows : [["—"]],
+      body: visibleRows,
       columnStyles,
       styles: {
         font: "helvetica",
@@ -418,7 +492,7 @@ function createReport({ title, reference, issueDate, company, signatures, filena
         lineWidth: 0.15,
         lineColor: [222, 229, 238],
         textColor: [50, 64, 83],
-        valign: "middle",
+        valign: "top",
       },
       headStyles: {
         fillColor: [243, 244, 246],
@@ -451,7 +525,7 @@ function createReport({ title, reference, issueDate, company, signatures, filena
         ) {
           data.cell.styles.halign = "right";
         }
-        if (alignRight && data.section === "body" && data.row.index === rows.length - 1) {
+        if (alignRight && data.section === "body" && data.row.index === visibleRows.length - 1) {
           data.cell.styles.fillColor = [232, 241, 252];
           data.cell.styles.textColor = [23, 50, 84];
           data.cell.styles.fontStyle = "bold";
@@ -484,7 +558,7 @@ function createReport({ title, reference, issueDate, company, signatures, filena
 }
 
 function recordRef(record, fallback = "") {
-  return text(record?.reference || record?.number || record?.id, fallback);
+  return referenceValue(record, fallback);
 }
 
 function paymentStatus(client) {
@@ -556,11 +630,18 @@ export function generateFicheStockPDF(item = {}, options = {}) {
   report.addSection("Informations de la pièce", [
     ["Référence", text(item.reference, "—")],
     ["Désignation", text(item.designation || item.name, "—")],
-    ["Quantité disponible", quantity],
-    ["Alerte de stock", quantity < 5 ? "Stock bas — réapprovisionnement à vérifier" : "Niveau normal"],
+    ["Catégorie", text(item.category, "—")],
+    ["Quantité disponible", `${quantity} ${text(item.unit, "unité")}`],
+    ["Seuil minimum", number(item.minimumQuantity, 5)],
+    ["Alerte de stock", quantity <= number(item.minimumQuantity, 5) ? "Stock bas — réapprovisionnement à vérifier" : "Niveau normal"],
+    ["Prix d’achat unitaire", money(item.purchasePrice ?? item.unitPrice ?? item.price ?? 0)],
     ["Prix unitaire", money(item.unitPrice ?? item.price ?? 0)],
-    ["Valeur indicative du stock", money(quantity * number(item.unitPrice ?? item.price, 0))],
+    ["Valeur d’achat estimée", money(quantity * number(item.purchasePrice ?? item.unitPrice ?? item.price, 0))],
+    ["Emplacement", text(item.location, "—")],
+    ["Fournisseur", text(item.supplierName, "—")],
+    ["Statut", text(item.status, "Actif")],
   ], { columns: ["Information", "Détail"] });
+  report.addParagraph("Notes", item.notes);
   return report.finish();
 }
 
@@ -580,14 +661,17 @@ export function generateInventaireStockPDF(items = [], options = {}) {
     return [
       text(item.reference, "—"),
       text(item.designation || item.name, "Pièce"),
-      quantity,
-      money(item.unitPrice ?? item.price ?? 0),
-      quantity < 5 ? "Stock bas" : "Normal",
+      text(item.category, "—"),
+      `${quantity} ${text(item.unit, "u.")}`,
+      number(item.minimumQuantity, 5),
+      text(item.location, "—"),
+      money(item.purchasePrice ?? item.unitPrice ?? item.price ?? 0),
+      quantity <= number(item.minimumQuantity, 5) ? "Stock bas" : "Normal",
     ];
   });
   report.addSection("Articles en stock", rows, {
-    columns: ["Référence", "Désignation", "Qté", "Prix unitaire", "État"],
-    widths: [27, 85, 18, 30, 25],
+    columns: ["Référence", "Désignation", "Catégorie", "Qté", "Seuil", "Emplacement", "Prix achat", "État"],
+    widths: [23, 55, 25, 16, 15, 23, 25, 18],
     autoColumn: 1,
   });
   return report.finish();
@@ -668,7 +752,7 @@ export function generateRecuPaiementPDF(paiement = {}, client = {}, options = {}
   const report = createReport({
     title: "Reçu de paiement",
     reference: receiptRef,
-    issueDate: paiement.date || new Date(),
+    issueDate: recordDate(paiement, ["dateReception", "paidAt", "timestamp"]),
     company,
     signatures,
     filename: fileName(`recu-paiement-${receiptRef}`),
@@ -676,14 +760,18 @@ export function generateRecuPaiementPDF(paiement = {}, client = {}, options = {}
   report.addSection("Payeur", [
     ["Client", clientIdentity(client)],
     ["Adresse", client.address || client.adresse || "—"],
+    ["Site", [paiement.site?.name, paiement.site?.address, paiement.site?.city].filter(Boolean).join(" · ") || "—"],
+    ["Ascenseur", [paiement.ascenseur?.referenceInternal, paiement.ascenseur?.serialNumber, paiement.ascenseur?.brand].filter(Boolean).join(" · ") || "—"],
     ["Mode de paiement", paiement.paymentMethod || paiement.modePaiement || paiement.method || "—"],
-    ["Date de réception", formatDate(paiement.date || paiement.paidAt || paiement.createdAt)],
+    ["Date de réception", formatDate(recordDate(paiement, ["dateReception", "paidAt", "timestamp"]))],
     ["Référence de transaction", paiement.transactionReference || paiement.transactionId || "—"],
   ], { columns: ["Information", "Détail"] });
   report.addSection("Règlement reçu", [
     ["Montant", money(paiement.amount ?? paiement.montant, paiement.currency || "EUR")],
     ["Période concernée", paiement.period || paiement.periode || "—"],
-    ["Référence facture", paiement.invoiceNumber || paiement.documentReference || "—"],
+    ["Facture liée", paiement.invoiceNumber || paiement.documentReference || "Non affecté"],
+    ["Montant de la facture", paiement.factureId && paiement.amountDue != null ? money(paiement.amountDue, paiement.currency || "EUR") : "—"],
+    ["Solde après règlement", paiement.factureId && paiement.balanceDue != null ? money(paiement.balanceDue, paiement.currency || "EUR") : "—"],
     ["Statut", paiement.status || "Payé"],
   ], { columns: ["Information", "Détail"] });
   const proofFiles = paiement.proofFiles || (paiement.proof ? [paiement.proof] : []);
@@ -703,10 +791,17 @@ export function generateContratPDF(contrat = {}, client = {}, options = {}) {
   const contractType = text(contrat.contractType || contrat.type, "Installation");
   const category = text(contrat.category || contrat.categorie, "Simple");
   const categoryLabel = category.toLocaleLowerCase("fr-FR").includes("complet") ? "Complet" : "Simple";
+  const elevator = contrat.ascenseur && typeof contrat.ascenseur === "object" ? contrat.ascenseur : {};
+  const elevatorLabel = [
+    elevator.number || elevator.referenceInternal,
+    elevator.brand,
+    elevator.model,
+    elevator.type,
+  ].filter(Boolean).join(" · ") || text(contrat.equipment || contrat.equipement, "—");
   const report = createReport({
     title: `Contrat ${contractType.toLocaleLowerCase("fr-FR")} — ${categoryLabel}`,
     reference: ref,
-    issueDate: contrat.date || new Date(),
+    issueDate: recordDate(contrat, ["dateSignature", "dateDebut"]),
     company,
     signatures,
     filename: fileName(`contrat-${ref}`),
@@ -716,8 +811,11 @@ export function generateContratPDF(contrat = {}, client = {}, options = {}) {
     ["Adresse du client", client.address || client.adresse || "—"],
     ["Type de contrat", contractType],
     ["Catégorie", `Contrat ${categoryLabel}`],
-    ["Lieu d’intervention / site", contrat.siteAddress || contrat.siteName || contrat.buildingName || contrat.site || "—"],
-    ["Équipement / ascenseur", contrat.equipment || contrat.equipement || "—"],
+    ["Lieu d’intervention / site", contrat.siteAddress || contrat.siteName || contrat.buildingName || contrat.site?.name || "—"],
+    ["Ville du site", contrat.site?.city || "—"],
+    ["Contact sur place", [contrat.site?.onsiteContact, contrat.site?.contactPhone].filter(Boolean).join(" · ") || "—"],
+    ["Équipement / ascenseur", elevatorLabel],
+    ["Devis associé", contrat.devisReference || "—"],
     ["Date de début", formatDate(contrat.startDate || contrat.dateDebut)],
     ["Date de fin / durée", contrat.endDate ? formatDate(contrat.endDate) : text(contrat.duration || contrat.duree, "—")],
     ["Fréquence de suivi", contrat.maintenanceFrequency || "À définir selon le périmètre"],
@@ -726,10 +824,12 @@ export function generateContratPDF(contrat = {}, client = {}, options = {}) {
     ["Montant", money(contrat.amount ?? contrat.montant)],
   ], { columns: ["Information", "Détail"] });
   report.addSection("Caractéristiques de l’ascenseur", [
-    ["Marque", contrat.elevatorBrand || contrat.brand || "—"],
-    ["Charge utile", contrat.capacityKg != null && contrat.capacityKg !== "" ? `${text(contrat.capacityKg)} kg` : "—"],
-    ["Nombre de niveaux / étages", contrat.floorCount ?? contrat.floors ?? "—"],
-    ["Numéro de série", contrat.serialNumber || "—"],
+    ["Référence interne", elevator.referenceInternal || elevator.number || "—"],
+    ["Marque / modèle", [contrat.elevatorBrand || elevator.brand, elevator.model].filter(Boolean).join(" ") || "—"],
+    ["Type d’équipement", elevator.type || "—"],
+    ["Charge utile", contrat.capacityKg != null && contrat.capacityKg !== "" ? `${text(contrat.capacityKg)} kg` : elevator.ratedLoadKg ? `${text(elevator.ratedLoadKg)} kg` : "—"],
+    ["Nombre de niveaux / étages", contrat.floorCount ?? elevator.stops ?? contrat.floors ?? "—"],
+    ["Numéro de série", contrat.serialNumber || elevator.serialNumber || "—"],
     ["Fréquence de maintenance", contrat.maintenanceFrequency || "—"],
   ], { columns: ["Caractéristique", "Valeur"] });
   report.addParagraph("Description des prestations", contrat.description || contrat.scope || contrat.prestations);
@@ -778,19 +878,24 @@ export function generateFicheInterventionPDF(intervention = {}, client = {}, opt
   const report = createReport({
     title: "Fiche d'intervention technique",
     reference: ref,
-    issueDate: intervention.date || new Date(),
+    issueDate: recordDate(intervention, ["dateIntervention", "scheduledAt", "completedAt"]),
     company,
     signatures: { ...signatures, enabled: signatures.enabled },
     filename: fileName(`fiche-intervention-${ref}`),
   });
   report.addSection("Informations de visite", [
     ["Client", clientIdentity(client)],
-    ["Lieu d’intervention / immeuble", intervention.siteAddress || intervention.siteName || intervention.buildingName || client.address || client.adresse || "—"],
-    ["Équipement / ascenseur", intervention.equipment || intervention.equipement || "—"],
-    ["Date et heure", `${formatDate(intervention.date)} ${text(intervention.time, "")}`.trim()],
+    ["Site / immeuble", [intervention.site?.name, intervention.site?.address, intervention.site?.city].filter(Boolean).join(" · ") || intervention.siteAddress || intervention.siteName || intervention.buildingName || client.address || client.adresse || "—"],
+    ["Ascenseur", [intervention.ascenseur?.referenceInternal, intervention.ascenseur?.serialNumber, intervention.ascenseur?.brand, intervention.ascenseur?.model].filter(Boolean).join(" · ") || intervention.equipment || intervention.equipement || "—"],
+    ["Type d’équipement", text(intervention.ascenseur?.type, "—")],
+    ["Contact sur place", [intervention.contactName || intervention.site?.onsiteContact, intervention.contactPhone || intervention.site?.contactPhone].filter(Boolean).join(" · ") || "—"],
+    ["Contrat associé", intervention.contractReference || intervention.contratId || "—"],
+    ["Date et horaires", `${formatDate(intervention.date)}${intervention.startTime ? ` · ${intervention.startTime}` : ""}${intervention.endTime ? `–${intervention.endTime}` : ""}`],
+    ["Durée", intervention.durationMinutes ? `${Math.floor(intervention.durationMinutes / 60)} h ${intervention.durationMinutes % 60} min` : "—"],
     ["Technicien", intervention.technician || intervention.technicien || "—"],
     ["Type d'intervention", intervention.type || intervention.interventionType || "—"],
     ["Priorité", intervention.priority || intervention.priorite || "Normal"],
+    ["Statut", intervention.status || "En cours"],
   ], { columns: ["Information", "Détail"] });
 
   const checklist = Array.isArray(intervention.checklist)
@@ -809,14 +914,19 @@ export function generateFicheInterventionPDF(intervention = {}, client = {}, opt
   const spareParts = intervention.spareParts || intervention.partsUsed || intervention.sparePartsUsed || [];
   if (spareParts.length) {
     report.addSection("Pièces de rechange utilisées", spareParts.map((part) => [
+      text(part.reference, "—"),
       text(part.designation || part.description || part.name || "Pièce"),
       text(part.quantity ?? part.quantite ?? 1),
-    ]), { columns: ["Désignation", "Quantité"], widths: [145, 35] });
+    ]), { columns: ["Référence", "Désignation", "Quantité"], widths: [32, 108, 40], autoColumn: 1 });
   }
+  report.addParagraph("Diagnostic", intervention.diagnosis);
+  report.addParagraph("Travaux réalisés", intervention.workPerformed);
+  report.addParagraph("Recommandations", intervention.recommendations);
   report.addParagraph("Rapport du technicien", intervention.report || intervention.description || intervention.rapport);
-  report.addParagraph("Travaux à prévoir", intervention.followUp || intervention.followup || intervention.suite);
+  report.addParagraph("Suite à donner", intervention.followUp || intervention.followup || intervention.suite);
+  report.addParagraph("Prochaine visite prévue", intervention.nextVisitDate ? formatDate(intervention.nextVisitDate) : "");
   report.addParagraph("Signature du technicien", `Nom : ${text(intervention.technician || intervention.technicien, "____________________")}     Signature : ____________________`);
-  report.addParagraph("Signature du client", `Nom : ${text(intervention.clientRepresentative || client.contactName, "____________________")}     Signature : ____________________`);
+  report.addParagraph("Signature du client", `Nom : ${text(intervention.clientSignature || intervention.contactName || intervention.clientRepresentative || client.contactName, "____________________")}     Signature : ____________________`);
   return report.finish();
 }
 
@@ -848,17 +958,24 @@ function generateOrderPDF(record, { title, filenamePrefix, options = {}, signatu
   const report = createReport({
     title,
     reference: ref,
-    issueDate: record.date || record.issueDate || new Date(),
+    issueDate: recordDate(record, ["dateEmission", "dateCommande", "dateLivraison", "dateReception"]),
     company,
     signatures: { ...signatures, enabled: signaturesEnabled && signatures.enabled },
     filename: fileName(`${filenamePrefix}-${ref}`),
   });
   report.addSection("Informations", [
-    ["Fournisseur", record.supplier || record.fournisseur || "—"],
-    ["Client / destinataire", record.customer || record.client || record.recipient || "—"],
+    ["Fournisseur", record.fournisseurName || record.supplier || record.fournisseur || "—"],
+    ["Client / destinataire", record.clientName || record.customer || record.client || record.recipient || "—"],
     ["Adresse de livraison", record.deliveryAddress || record.adresseLivraison || "—"],
-    ["Date prévue", formatDate(record.deliveryDate || record.dateLivraison)],
-    ["Référence associée", record.relatedReference || record.referenceDocument || "—"],
+    ["Site", [record.site?.name, record.site?.address, record.site?.city].filter(Boolean).join(" · ") || "—"],
+    ["Équipement", [record.ascenseur?.referenceInternal, record.ascenseur?.serialNumber, record.ascenseur?.brand].filter(Boolean).join(" · ") || "—"],
+    ["Date prévue", formatDate(record.expectedDate || record.deliveryDate || record.dateLivraison)],
+    ["Statut", record.status || "—"],
+    ["Devis lié", record.devisReference || "—"],
+    ["Contrat lié", record.contratReference || "—"],
+    ["Facture liée", record.factureReference || "—"],
+    ["Commande liée", record.commandeReference || "—"],
+    ["Référence associée", record.refLiee || record.relatedReference || record.referenceDocument || "—"],
   ], { columns: ["Information", "Détail"] });
   report.addSection("Articles", orderRows(record.items || record.articles || record.lines), {
     columns: ["Référence", "Désignation", "Qté", "Prix unitaire", "Total"],
@@ -906,13 +1023,22 @@ export function generateBonLivraisonPDF(livraison = {}, options = {}) {
   });
 }
 
+export function generateBonReceptionPDF(reception = {}, options = {}) {
+  const reportRecord = { ...reception, reference: reception.reference || reception.number || reception.id };
+  return generateOrderPDF(reportRecord, {
+    title: "Bon de réception",
+    filenamePrefix: "bon-reception",
+    options,
+  });
+}
+
 export function generateDevisFacturePDF(document = {}, options = {}) {
   const { company, signatures } = normalizeOptions(document, options);
   const documentKind = text(document.documentType || document.type).toLocaleLowerCase("fr-FR");
   const inferredTitle = ["invoice", "facture"].includes(documentKind) ? "Facture" : "Devis";
   const title = text(document.documentTitle || document.title, inferredTitle);
   const ref = recordRef(document, `TGI-${new Date().getFullYear()}-001`);
-  const currency = document.currency || "EUR";
+  const currency = document.currency || "MAD";
   const rows = (Array.isArray(document.items) ? document.items : []).map((item) => {
     const quantity = number(item.quantity ?? item.quantite, 1);
     const unitPrice = number(item.unitPrice ?? item.price ?? item.prixUnitaire, 0);
@@ -940,17 +1066,49 @@ export function generateDevisFacturePDF(document = {}, options = {}) {
   const report = createReport({
     title,
     reference: ref,
-    issueDate: document.issueDate || document.date || new Date(),
+    issueDate: recordDate(document, ["dateEmission", "issueDate"]),
     company,
     signatures,
     filename: fileName(`${title}-${ref}`),
   });
-  report.addSection("Client", [
+  const clientRows = [
     ["Nom / raison sociale", clientIdentity(document.client || document.customer || {})],
     ["Adresse", document.client?.address || document.customer?.address || document.clientAddress || "—"],
-    ["E-mail", document.client?.email || document.customer?.email || "—"],
+    ["E-mail", document.client?.email || document.customer?.email || document.clientEmail || "—"],
     ["Valable jusqu'au", document.validUntil ? formatDate(document.validUntil) : "—"],
-  ], { columns: ["Information", "Détail"] });
+    ...(document.dueDate ? [["Échéance de paiement", formatDate(document.dueDate)]] : []),
+    ...(document.devisReference ? [["Devis associé", document.devisReference]] : []),
+    ...(document.clientType ? [["Type de client", document.clientType]] : []),
+    ...((document.client?.phone || document.customer?.phone || document.clientPhone)
+      ? [["Téléphone", document.client?.phone || document.customer?.phone || document.clientPhone]]
+      : []),
+    ...((document.client?.ice || document.clientIce || document.client?.ifNumber || document.clientIfNumber || document.client?.rc || document.clientRc)
+      ? [["ICE / IF / RC", [
+      document.client?.ice || document.clientIce ? `ICE ${document.client?.ice || document.clientIce}` : "",
+      document.client?.ifNumber || document.clientIfNumber ? `IF ${document.client?.ifNumber || document.clientIfNumber}` : "",
+      document.client?.rc || document.clientRc ? `RC ${document.client?.rc || document.clientRc}` : "",
+      ].filter(Boolean).join(" · ")]]
+      : []),
+    ...(document.status ? [["Statut", document.status]] : []),
+  ];
+  report.addSection("Client", clientRows, { columns: ["Information", "Détail"] });
+  if (document.site) {
+    report.addSection("Site concerné", [
+      ["Immeuble / résidence", document.site.name || "—"],
+      ["Adresse", document.site.address || "—"],
+      ["Ville", document.site.city || "—"],
+      ["Étage / accès", document.site.accessFloor || "—"],
+    ], { columns: ["Information", "Détail"] });
+  }
+  if (document.ascenseur) {
+    report.addSection("Équipement concerné", [
+      ["Référence", document.ascenseur.number || document.ascenseur.referenceInternal || "—"],
+      ["N° de série", document.ascenseur.serialNumber || "—"],
+      ["Marque / modèle", [document.ascenseur.brand, document.ascenseur.model].filter(Boolean).join(" ") || "—"],
+      ["Type", document.ascenseur.type || "—"],
+      ["Niveaux / charge", `${number(document.ascenseur.stops)} niveaux · ${number(document.ascenseur.ratedLoadKg)} kg`],
+    ], { columns: ["Information", "Détail"] });
+  }
   report.addSection("Prestations et fournitures", rows, {
     columns: ["Désignation", "Qté", "Prix unitaire HT", "Total HT"],
     widths: [85, 15, 40, 40],
@@ -962,6 +1120,13 @@ export function generateDevisFacturePDF(document = {}, options = {}) {
     [`TVA (${taxRate} %)`, money(tax, currency)],
     ["Total TTC", money(total, currency)],
   ], { columns: ["Libellé", "Montant"], widths: [54, 36], alignRight: true });
+  if (inferredTitle === "Facture" && (document.paidAmount != null || document.balanceDue != null)) {
+    report.addSection("Suivi du règlement", [
+      ["Déjà réglé", money(document.paidAmount || 0, currency)],
+      ["Solde à payer", money(document.balanceDue ?? Math.max(0, total - number(document.paidAmount)), currency)],
+      ["Statut", document.status || "À payer"],
+    ], { columns: ["Information", "Montant / état"], widths: [52, 38] });
+  }
   report.addParagraph("Notes et conditions", document.notes || document.terms);
   return report.finish();
 }

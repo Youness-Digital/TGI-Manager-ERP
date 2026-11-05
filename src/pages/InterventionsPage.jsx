@@ -1,17 +1,48 @@
 import { useEffect, useMemo, useState } from "react";
 import { ClipboardCheck, FileDown, LoaderCircle, Plus, Search, X } from "lucide-react";
-import { clientsService, equipeService, interventionsService, stockService, updateStockMovement } from "../services/dbService";
+import {
+  ascenseursService,
+  clientsService,
+  contratsService,
+  equipeService,
+  interventionsService,
+  sitesService,
+  stockService,
+  updateStockMovement,
+} from "../services/dbService";
 
 const EMPTY_FORM = {
   clientId: "",
+  siteId: "",
+  ascenseurId: "",
+  contratId: "",
   siteAddress: "",
   date: "",
+  startTime: "",
+  endTime: "",
   technicianId: "",
-  interventionType: "Panne",
+  interventionType: "Dépannage",
+  diagnosis: "",
+  workPerformed: "",
+  recommendations: "",
+  followUp: "",
+  nextVisitDate: "",
+  contactName: "",
+  contactPhone: "",
+  clientSignature: "",
   report: "",
   status: "En cours",
   priority: "Normal",
-  checklist: { Cabine: false, Moteur: false, Portes: false, Parachute: false },
+  checklist: {
+    Cabine: false,
+    "Portes palières": false,
+    "Moteur / traction": false,
+    Frein: false,
+    Parachute: false,
+    "Alarme / communication": false,
+    "Éclairage de secours": false,
+    "Niveau d’arrêt": false,
+  },
   spareParts: [{ stockItemId: "", designation: "", reference: "", quantity: "1" }],
 };
 
@@ -22,9 +53,11 @@ function formatDate(value) {
 }
 
 const STATUS_CLASSES = {
+  Planifiée: "bg-blue-50 text-blue-700 ring-blue-200",
   "En cours": "bg-amber-50 text-amber-700 ring-amber-200",
   Terminé: "bg-emerald-50 text-emerald-700 ring-emerald-200",
   Terminée: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  Annulée: "bg-slate-100 text-slate-600 ring-slate-200",
 };
 
 function teamMemberName(member) {
@@ -42,7 +75,16 @@ async function createInterventionWithStock(record) {
   try {
     for (const [itemId, quantity] of quantitiesByItem) {
       const movement = { itemId, quantityChange: -quantity };
-      await updateStockMovement(movement.itemId, movement.quantityChange);
+      await updateStockMovement(movement.itemId, movement.quantityChange, {
+        date: record.date,
+        reason: `Pièces utilisées pour l’intervention ${record.interventionType || ""}`.trim(),
+        sourceType: "Intervention",
+        clientId: record.clientId || "",
+        contratId: record.contratId || "",
+        actorId: record.technicianId || "",
+        actorName: record.technician || "",
+        notes: record.number || record.ascenseur?.referenceInternal || "",
+      });
       appliedMovements.push(movement);
     }
     return await interventionsService.create(record);
@@ -50,7 +92,10 @@ async function createInterventionWithStock(record) {
     const rollbackErrors = [];
     for (const movement of appliedMovements.reverse()) {
       try {
-        await updateStockMovement(movement.itemId, -movement.quantityChange);
+        await updateStockMovement(movement.itemId, -movement.quantityChange, {
+          reason: "Annulation d’un mouvement après échec de création de l’intervention",
+          sourceType: "Annulation",
+        });
       } catch (rollbackError) {
         rollbackErrors.push(rollbackError);
       }
@@ -66,23 +111,77 @@ async function createInterventionWithStock(record) {
   }
 }
 
-function InterventionModal({ clients, clientsLoading, team, teamLoading, stock, stockLoading, onClose, onCreate, saving, error }) {
+function InterventionModal({ clients, clientsLoading, sites, sitesLoading, ascenseurs, equipmentLoading, contracts, contractsLoading, team, teamLoading, stock, stockLoading, onClose, onCreate, saving, error }) {
   const [form, setForm] = useState(EMPTY_FORM);
+  const clientSites = sites.filter((site) => site.clientId === form.clientId);
+  const siteElevators = ascenseurs.filter((elevator) => elevator.siteId === form.siteId);
+  const clientContracts = contracts.filter((contract) => contract.clientId === form.clientId);
+  const selectedSite = clientSites.find((site) => site.id === form.siteId);
+  const selectedElevator = siteElevators.find((elevator) => elevator.id === form.ascenseurId);
+  const selectedContract = clientContracts.find((contract) => contract.id === form.contratId);
 
   function submit(event) {
     event.preventDefault();
     const client = clients.find((entry) => entry.id === form.clientId);
     if (!client) return;
+    const timeToMinutes = (value) => {
+      if (!value) return null;
+      const [hours, minutes] = value.split(":").map(Number);
+      return hours * 60 + minutes;
+    };
+    const startMinutes = timeToMinutes(form.startTime);
+    const endMinutes = timeToMinutes(form.endTime);
+    const durationMinutes = startMinutes != null && endMinutes != null
+      ? (endMinutes >= startMinutes ? endMinutes : endMinutes + 24 * 60) - startMinutes
+      : 0;
+    const siteSnapshot = selectedSite ? {
+      name: selectedSite.name || "",
+      address: selectedSite.address || "",
+      city: selectedSite.city || "",
+      accessFloor: selectedSite.accessFloor || "",
+      onsiteContact: selectedSite.onsiteContact || selectedSite.contactName || "",
+      contactPhone: selectedSite.contactPhone || "",
+    } : null;
+    const elevatorSnapshot = selectedElevator ? {
+      number: selectedElevator.number || "",
+      referenceInternal: selectedElevator.referenceInternal || "",
+      serialNumber: selectedElevator.serialNumber || "",
+      brand: selectedElevator.brand || selectedElevator.marque || "",
+      model: selectedElevator.model || "",
+      type: selectedElevator.type || "",
+      stops: Number(selectedElevator.stops) || 0,
+    } : null;
     onCreate({
       clientId: client.id,
       clientName: client.name || "Client",
-      siteAddress: form.siteAddress.trim(),
+      clientType: client.clientType || "",
+      siteId: selectedSite?.id || "",
+      site: siteSnapshot,
+      siteAddress: selectedSite
+        ? [selectedSite.name, selectedSite.address, selectedSite.city].filter(Boolean).join(", ")
+        : form.siteAddress.trim(),
+      ascenseurId: selectedElevator?.id || "",
+      equipmentId: selectedElevator?.id || "",
+      ascenseur: elevatorSnapshot,
+      contratId: selectedContract?.id || "",
+      contractReference: selectedContract?.number || selectedContract?.reference || "",
+      contactName: form.contactName.trim() || siteSnapshot?.onsiteContact || "",
+      contactPhone: form.contactPhone.trim() || siteSnapshot?.contactPhone || "",
       date: form.date,
+      startTime: form.startTime,
+      endTime: form.endTime,
+      durationMinutes,
       technicianId: form.technicianId,
       technician: teamMemberName(team.find((member) => member.id === form.technicianId)),
       interventionType: form.interventionType,
       type: form.interventionType,
       report: form.report.trim(),
+      diagnosis: form.diagnosis.trim(),
+      workPerformed: form.workPerformed.trim(),
+      recommendations: form.recommendations.trim(),
+      followUp: form.followUp.trim(),
+      nextVisitDate: form.nextVisitDate,
+      clientSignature: form.clientSignature.trim(),
       status: form.status,
       priority: form.priority,
       checklist: Object.entries(form.checklist).map(([label, checked]) => ({ label, checked })),
@@ -119,7 +218,7 @@ function InterventionModal({ clients, clientsLoading, team, teamLoading, stock, 
         <form onSubmit={submit} className="space-y-4">
           <label className="block text-xs font-semibold text-slate-600">
             Client <span className="text-red-500">*</span>
-            <select required value={form.clientId} onChange={(event) => setForm((current) => ({ ...current, clientId: event.target.value }))} disabled={clientsLoading || !hasClients} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50 disabled:opacity-60">
+            <select required value={form.clientId} onChange={(event) => setForm((current) => ({ ...current, clientId: event.target.value, siteId: "", ascenseurId: "", contratId: "", siteAddress: "" }))} disabled={clientsLoading || !hasClients} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50 disabled:opacity-60">
               <option value="">{clientsLoading ? "Chargement des clients…" : hasClients ? "Sélectionner un client" : "Aucun client disponible"}</option>
               {clients.map((client) => <option key={client.id} value={client.id}>{client.name || "Client sans nom"}</option>)}
             </select>
@@ -127,13 +226,53 @@ function InterventionModal({ clients, clientsLoading, team, teamLoading, stock, 
           </label>
 
           <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block text-xs font-semibold text-slate-600">
+              Site / immeuble
+              <select value={form.siteId} onChange={(event) => setForm((current) => ({ ...current, siteId: event.target.value, ascenseurId: "" }))} disabled={!form.clientId} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50 disabled:opacity-60">
+                <option value="">{sitesLoading ? "Chargement des sites…" : "Site non enregistré / saisie libre"}</option>
+                {clientSites.map((site) => <option key={site.id} value={site.id}>{site.name || "Site"} · {site.city || "Ville non renseignée"}</option>)}
+              </select>
+            </label>
+            <label className="block text-xs font-semibold text-slate-600">
+              Ascenseur concerné
+              <select value={form.ascenseurId} onChange={(event) => setForm((current) => ({ ...current, ascenseurId: event.target.value }))} disabled={!form.siteId} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50 disabled:opacity-60">
+                <option value="">{equipmentLoading ? "Chargement des équipements…" : "Aucun équipement sélectionné"}</option>
+                {siteElevators.map((elevator) => <option key={elevator.id} value={elevator.id}>{elevator.referenceInternal || elevator.serialNumber || "Ascenseur"} · {elevator.brand || elevator.marque || "Autre"} {elevator.model || ""}</option>)}
+              </select>
+            </label>
             <label className="block text-xs font-semibold text-slate-600 sm:col-span-2">
+              Contrat associé
+              <select value={form.contratId} onChange={(event) => {
+                const contract = clientContracts.find((entry) => entry.id === event.target.value);
+                setForm((current) => ({ ...current, contratId: event.target.value, siteId: contract?.siteId || current.siteId, ascenseurId: contract?.ascenseurId || current.ascenseurId }));
+              }} disabled={!form.clientId} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50 disabled:opacity-60">
+                <option value="">{contractsLoading ? "Chargement des contrats…" : "Aucun contrat associé"}</option>
+                {clientContracts.map((contract) => <option key={contract.id} value={contract.id}>{contract.number || contract.reference || contract.id} · {contract.contractType || contract.type || "Contrat"}</option>)}
+              </select>
+            </label>
+            {!form.siteId && <label className="block text-xs font-semibold text-slate-600 sm:col-span-2">
               Adresse du site / nom de l’immeuble <span className="text-red-500">*</span>
-              <input required maxLength={240} value={form.siteAddress} onChange={(event) => setForm((current) => ({ ...current, siteAddress: event.target.value }))} placeholder="Résidence Al Andalous, adresse complète" className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
+              <input required maxLength={240} value={form.siteAddress} onChange={(event) => setForm((current) => ({ ...current, siteAddress: event.target.value }))} placeholder="Résidence, adresse complète et ville" className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
+            </label>}
+            <label className="block text-xs font-semibold text-slate-600">
+              Contact sur place
+              <input maxLength={160} value={form.contactName} onChange={(event) => setForm((current) => ({ ...current, contactName: event.target.value }))} placeholder={selectedSite?.onsiteContact || "Gardien, syndic…"} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
+            </label>
+            <label className="block text-xs font-semibold text-slate-600">
+              Téléphone du contact
+              <input type="tel" maxLength={40} value={form.contactPhone} onChange={(event) => setForm((current) => ({ ...current, contactPhone: event.target.value }))} placeholder={selectedSite?.contactPhone || "Téléphone"} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
             </label>
             <label className="block text-xs font-semibold text-slate-600">
               Date de l’intervention <span className="text-red-500">*</span>
               <input required type="date" value={form.date} onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
+            </label>
+            <label className="block text-xs font-semibold text-slate-600">
+              Heure de début
+              <input type="time" value={form.startTime} onChange={(event) => setForm((current) => ({ ...current, startTime: event.target.value }))} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
+            </label>
+            <label className="block text-xs font-semibold text-slate-600">
+              Heure de fin
+              <input type="time" value={form.endTime} onChange={(event) => setForm((current) => ({ ...current, endTime: event.target.value }))} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
             </label>
             <label className="block text-xs font-semibold text-slate-600">
               Technicien <span className="text-red-500">*</span>
@@ -146,15 +285,21 @@ function InterventionModal({ clients, clientsLoading, team, teamLoading, stock, 
             <label className="block text-xs font-semibold text-slate-600">
               Type d’intervention <span className="text-red-500">*</span>
               <select value={form.interventionType} onChange={(event) => setForm((current) => ({ ...current, interventionType: event.target.value }))} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50">
-                <option value="Panne">Panne</option>
-                <option value="Entretien régulier">Entretien régulier</option>
+                <option>Installation</option>
+                <option>Maintenance préventive</option>
+                <option>Dépannage</option>
+                <option>Modernisation</option>
+                <option>Contrôle réglementaire</option>
+                <option>Visite technique</option>
+                <option>Entretien régulier</option>
+                <option>Panne</option>
               </select>
             </label>
             <label className="block text-xs font-semibold text-slate-600">
               Statut <span className="text-red-500">*</span>
               <select value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50">
-                <option value="En cours">En cours</option>
-                <option value="Terminé">Terminé</option>
+                <option>En cours</option>
+                <option>Terminée</option>
               </select>
             </label>
             <label className="block text-xs font-semibold text-slate-600">
@@ -206,14 +351,40 @@ function InterventionModal({ clients, clientsLoading, team, teamLoading, stock, 
           </section>
 
           <label className="block text-xs font-semibold text-slate-600">
-            Rapport / description <span className="text-red-500">*</span>
+            Compte rendu de l’intervention <span className="text-red-500">*</span>
             <textarea required rows={4} maxLength={5000} value={form.report} onChange={(event) => setForm((current) => ({ ...current, report: event.target.value }))} placeholder="Décrivez le motif de la visite, les contrôles réalisés et les suites à donner…" className="mt-2 w-full resize-y rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal leading-5 text-ink outline-none transition placeholder:text-slate-400 focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
           </label>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block text-xs font-semibold text-slate-600">
+              Diagnostic
+              <textarea rows={3} maxLength={2500} value={form.diagnosis} onChange={(event) => setForm((current) => ({ ...current, diagnosis: event.target.value }))} className="mt-2 w-full resize-y rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
+            </label>
+            <label className="block text-xs font-semibold text-slate-600">
+              Travaux réalisés
+              <textarea rows={3} maxLength={2500} value={form.workPerformed} onChange={(event) => setForm((current) => ({ ...current, workPerformed: event.target.value }))} className="mt-2 w-full resize-y rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
+            </label>
+            <label className="block text-xs font-semibold text-slate-600">
+              Recommandations
+              <textarea rows={2} maxLength={2000} value={form.recommendations} onChange={(event) => setForm((current) => ({ ...current, recommendations: event.target.value }))} className="mt-2 w-full resize-y rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
+            </label>
+            <label className="block text-xs font-semibold text-slate-600">
+              Suite à donner
+              <textarea rows={2} maxLength={2000} value={form.followUp} onChange={(event) => setForm((current) => ({ ...current, followUp: event.target.value }))} className="mt-2 w-full resize-y rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
+            </label>
+            <label className="block text-xs font-semibold text-slate-600">
+              Prochaine visite prévue
+              <input type="date" min={form.date || undefined} value={form.nextVisitDate} onChange={(event) => setForm((current) => ({ ...current, nextVisitDate: event.target.value }))} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
+            </label>
+            <label className="block text-xs font-semibold text-slate-600">
+              Nom du représentant client / visa
+              <input maxLength={160} value={form.clientSignature} onChange={(event) => setForm((current) => ({ ...current, clientSignature: event.target.value }))} placeholder="Nom du signataire sur site" className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
+            </label>
+          </div>
 
           {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2.5 text-xs leading-5 text-red-700">{error}</p>}
           <div className="flex flex-col-reverse gap-2 border-t border-line pt-5 sm:flex-row sm:justify-end">
             <button type="button" onClick={onClose} disabled={saving} className="rounded-xl border border-line px-4 py-2.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50">Annuler</button>
-            <button type="submit" disabled={saving || !hasClients || clientsLoading || !team.length || teamLoading} className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand px-4 py-2.5 text-xs font-bold text-white transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-60">
+            <button type="submit" disabled={saving || !hasClients || clientsLoading || sitesLoading || equipmentLoading || contractsLoading || !team.length || teamLoading} className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand px-4 py-2.5 text-xs font-bold text-white transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-60">
               {saving ? <LoaderCircle size={15} className="animate-spin" /> : <Plus size={15} />}
               {saving ? "Enregistrement…" : "Enregistrer l’intervention"}
             </button>
@@ -227,10 +398,16 @@ function InterventionModal({ clients, clientsLoading, team, teamLoading, stock, 
 export default function InterventionsPage({ company = {}, profiles = {} }) {
   const [interventions, setInterventions] = useState([]);
   const [clients, setClients] = useState([]);
+  const [sites, setSites] = useState([]);
+  const [ascenseurs, setAscenseurs] = useState([]);
+  const [contracts, setContracts] = useState([]);
   const [team, setTeam] = useState([]);
   const [stock, setStock] = useState([]);
   const [loading, setLoading] = useState(true);
   const [clientsLoading, setClientsLoading] = useState(true);
+  const [sitesLoading, setSitesLoading] = useState(true);
+  const [equipmentLoading, setEquipmentLoading] = useState(true);
+  const [contractsLoading, setContractsLoading] = useState(true);
   const [teamLoading, setTeamLoading] = useState(true);
   const [stockLoading, setStockLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -255,6 +432,45 @@ export default function InterventionsPage({ company = {}, profiles = {} }) {
         console.error("Impossible de charger les interventions depuis Firestore.", error);
         setLoadError("Le chargement des interventions a échoué. Vérifiez la connexion et les règles Firestore.");
         setLoading(false);
+      },
+    );
+    const unsubscribeSites = sitesService.subscribe(
+      (records) => {
+        if (!active) return;
+        setSites(records);
+        setSitesLoading(false);
+      },
+      (error) => {
+        if (!active) return;
+        console.error("Impossible de charger les sites nécessaires aux interventions.", error);
+        setSitesLoading(false);
+        setLoadError("Les sites n’ont pas pu être chargés depuis Firestore.");
+      },
+    );
+    const unsubscribeElevators = ascenseursService.subscribe(
+      (records) => {
+        if (!active) return;
+        setAscenseurs(records);
+        setEquipmentLoading(false);
+      },
+      (error) => {
+        if (!active) return;
+        console.error("Impossible de charger le parc installé pour les interventions.", error);
+        setEquipmentLoading(false);
+        setLoadError("Les ascenseurs n’ont pas pu être chargés depuis Firestore.");
+      },
+    );
+    const unsubscribeContracts = contratsService.subscribe(
+      (records) => {
+        if (!active) return;
+        setContracts(records);
+        setContractsLoading(false);
+      },
+      (error) => {
+        if (!active) return;
+        console.error("Impossible de charger les contrats nécessaires aux interventions.", error);
+        setContractsLoading(false);
+        setLoadError("Les contrats n’ont pas pu être chargés depuis Firestore.");
       },
     );
     const unsubscribeClients = clientsService.subscribe(
@@ -301,6 +517,9 @@ export default function InterventionsPage({ company = {}, profiles = {} }) {
       active = false;
       unsubscribeInterventions();
       unsubscribeClients();
+      unsubscribeSites();
+      unsubscribeElevators();
+      unsubscribeContracts();
       unsubscribeTeam();
       unsubscribeStock();
     };
@@ -310,7 +529,7 @@ export default function InterventionsPage({ company = {}, profiles = {} }) {
     const query = search.trim().toLocaleLowerCase("fr-FR");
     if (!query) return interventions;
     return interventions.filter((intervention) =>
-      [intervention.clientName, intervention.siteAddress, intervention.technician || intervention.technicien, intervention.interventionType || intervention.type, intervention.status || intervention.statut, intervention.priority || intervention.priorite, intervention.report || intervention.rapport, ...(intervention.spareParts || []).map((part) => part.designation)]
+      [intervention.number, intervention.clientName, intervention.siteAddress, intervention.site?.name, intervention.ascenseur?.referenceInternal, intervention.ascenseur?.serialNumber, intervention.technician || intervention.technicien, intervention.interventionType || intervention.type, intervention.status || intervention.statut, intervention.priority || intervention.priorite, intervention.report || intervention.rapport, ...(intervention.spareParts || []).map((part) => part.designation)]
         .some((value) => String(value ?? "").toLocaleLowerCase("fr-FR").includes(query)),
     );
   }, [interventions, search]);
@@ -392,7 +611,7 @@ export default function InterventionsPage({ company = {}, profiles = {} }) {
                   const priority = intervention.priority || intervention.priorite || "Normal";
                   return (
                     <tr key={intervention.id} className="text-xs transition hover:bg-slate-50/70">
-                      <td className="px-5 py-3.5"><p className="font-semibold text-ink">{client?.name || intervention.clientName || "Client"}</p><p className="mt-1 max-w-[220px] truncate text-[10px] text-slate-400" title={intervention.siteAddress}>{intervention.siteAddress || "Site non précisé"}</p></td>
+                      <td className="px-5 py-3.5"><p className="font-semibold text-ink">{client?.name || intervention.clientName || "Client"}</p><p className="mt-1 max-w-[220px] truncate text-[10px] text-slate-500" title={intervention.siteAddress}>{intervention.site?.name || intervention.siteAddress || "Site non précisé"}</p><p className="mt-1 text-[10px] text-slate-400">{intervention.ascenseur?.referenceInternal || intervention.ascenseur?.serialNumber || "Équipement non précisé"}{intervention.number ? ` · ${intervention.number}` : ""}</p></td>
                       <td className="whitespace-nowrap px-4 py-3.5 text-slate-500">{formatDate(intervention.date || intervention.dateIntervention)}</td>
                       <td className="px-4 py-3.5 text-slate-600">{intervention.technician || intervention.technicien || "—"}</td>
                       <td className="px-4 py-3.5"><span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-semibold text-blue-700">{intervention.interventionType || intervention.type || "—"}</span></td>
@@ -411,7 +630,7 @@ export default function InterventionsPage({ company = {}, profiles = {} }) {
         )}
       </div>
       {actionError && <p role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-xs text-red-700">{actionError}</p>}
-      {modalOpen && <InterventionModal clients={clients} clientsLoading={clientsLoading} team={team} teamLoading={teamLoading} stock={stock} stockLoading={stockLoading} onClose={() => setModalOpen(false)} onCreate={createIntervention} saving={saving} error={formError} />}
+      {modalOpen && <InterventionModal clients={clients} clientsLoading={clientsLoading} sites={sites} sitesLoading={sitesLoading} ascenseurs={ascenseurs} equipmentLoading={equipmentLoading} contracts={contracts} contractsLoading={contractsLoading} team={team} teamLoading={teamLoading} stock={stock} stockLoading={stockLoading} onClose={() => setModalOpen(false)} onCreate={createIntervention} saving={saving} error={formError} />}
     </section>
   );
 }

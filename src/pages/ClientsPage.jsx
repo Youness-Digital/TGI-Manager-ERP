@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { clientsService, uploadClientAttachment } from "../services/dbService";
+import { ascenseursService, clientsService, sitesService, uploadClientAttachment } from "../services/dbService";
 import { generateFicheClientPDF, prepareCompanyForPdf } from "../utils/pdfGenerator";
 import { Building2, FileText, LoaderCircle, Plus, Search, Upload, Users, X } from "lucide-react";
 
 const EMPTY_CLIENT = {
   name: "",
+  clientType: "Entreprise",
   ice: "",
   rc: "",
   patente: "",
@@ -30,8 +31,13 @@ function Field({ label, name, value, onChange, required, type = "text", classNam
 
 export default function ClientsPage({ company = {} }) {
   const [clients, setClients] = useState([]);
+  const [sites, setSites] = useState([]);
+  const [elevators, setElevators] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [sitesLoading, setSitesLoading] = useState(true);
+  const [elevatorsLoading, setElevatorsLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
+  const [relatedError, setRelatedError] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadingId, setUploadingId] = useState("");
@@ -60,9 +66,37 @@ export default function ClientsPage({ company = {} }) {
         setLoading(false);
       },
     );
+    const unsubscribeSites = sitesService.subscribe(
+      (records) => {
+        if (!active) return;
+        setSites(records);
+        setSitesLoading(false);
+      },
+      (subscriptionError) => {
+        if (!active) return;
+        console.error("Impossible de charger les sites des clients depuis Firestore.", subscriptionError);
+        setRelatedError(subscriptionError);
+        setSitesLoading(false);
+      },
+    );
+    const unsubscribeElevators = ascenseursService.subscribe(
+      (records) => {
+        if (!active) return;
+        setElevators(records);
+        setElevatorsLoading(false);
+      },
+      (subscriptionError) => {
+        if (!active) return;
+        console.error("Impossible de charger les ascenseurs des clients depuis Firestore.", subscriptionError);
+        setRelatedError(subscriptionError);
+        setElevatorsLoading(false);
+      },
+    );
     return () => {
       active = false;
       unsubscribe();
+      unsubscribeSites();
+      unsubscribeElevators();
     };
   }, []);
 
@@ -70,7 +104,7 @@ export default function ClientsPage({ company = {} }) {
     const query = search.trim().toLocaleLowerCase();
     if (!query) return clients;
     return clients.filter((client) =>
-      [client.name, client.email, client.phone, client.ice, client.rc, client.mainContact]
+      [client.name, client.clientType, client.email, client.phone, client.ice, client.rc, client.mainContact]
         .some((value) => String(value || "").toLocaleLowerCase().includes(query)),
     );
   }, [clients, search]);
@@ -167,14 +201,18 @@ export default function ClientsPage({ company = {} }) {
         </button>
       </header>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-3">
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-medium text-slate-500">Clients enregistrés</p>
           <p className="mt-2 text-3xl font-bold text-slate-900">{loading ? "—" : clients.length}</p>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm font-medium text-slate-500">Pièces jointes</p>
-          <p className="mt-2 text-3xl font-bold text-slate-900">{loading ? "—" : clients.reduce((sum, client) => sum + (client.attachments?.length || 0), 0)}</p>
+          <p className="text-sm font-medium text-slate-500">Sites clients</p>
+          <p className="mt-2 text-3xl font-bold text-slate-900">{sitesLoading ? "—" : sites.length}</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-sm font-medium text-slate-500">Ascenseurs rattachés</p>
+          <p className="mt-2 text-3xl font-bold text-slate-900">{elevatorsLoading ? "—" : elevators.length}</p>
         </div>
       </div>
 
@@ -195,16 +233,39 @@ export default function ClientsPage({ company = {} }) {
           <div className="p-12 text-center"><Building2 className="mx-auto mb-3 text-slate-300" size={30} /><p className="font-medium text-slate-700">{search ? "Aucun résultat" : "Aucun client pour le moment"}</p><p className="mt-1 text-sm text-slate-500">Ajoutez une fiche pour commencer.</p></div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-[900px] w-full text-left text-sm">
+            <table className="min-w-[1120px] w-full text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr>
-                <th className="px-5 py-3.5 font-semibold">Client</th><th className="px-5 py-3.5 font-semibold">Contact</th><th className="px-5 py-3.5 font-semibold">ICE / RC</th><th className="px-5 py-3.5 font-semibold">Paiement</th><th className="px-5 py-3.5 font-semibold">Documents</th><th className="px-5 py-3.5 text-right font-semibold">Actions</th>
+                <th className="px-5 py-3.5 font-semibold">Client</th><th className="px-5 py-3.5 font-semibold">Type</th><th className="px-5 py-3.5 font-semibold">Contact</th><th className="px-5 py-3.5 font-semibold">ICE / RC</th><th className="px-5 py-3.5 font-semibold">Sites / ascenseurs</th><th className="px-5 py-3.5 font-semibold">Paiement</th><th className="px-5 py-3.5 font-semibold">Documents</th><th className="px-5 py-3.5 text-right font-semibold">Actions</th>
               </tr></thead>
               <tbody className="divide-y divide-slate-100">
                 {visibleClients.map((client) => (
                   <tr key={client.id} className="align-top transition-all duration-200 hover:bg-slate-50">
                     <td className="px-5 py-4"><p className="font-semibold text-slate-900">{client.name}</p><p className="mt-1 max-w-xs truncate text-xs text-slate-500">{client.billingAddress || client.address || "Adresse non renseignée"}</p></td>
+                    <td className="px-5 py-4"><span className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700">{client.clientType || "Entreprise"}</span></td>
                     <td className="px-5 py-4"><p className="text-slate-700">{client.mainContact || "—"}</p><p className="mt-1 text-xs text-slate-500">{client.phone || ""}{client.phone && client.email ? " · " : ""}{client.email || ""}</p></td>
                     <td className="px-5 py-4 text-slate-600"><p>{client.ice ? `ICE ${client.ice}` : "—"}</p><p className="mt-1 text-xs text-slate-500">{client.rc ? `RC ${client.rc}` : ""}{client.patente ? ` · Patente ${client.patente}` : ""}</p></td>
+                    <td className="px-5 py-4">
+                      {sitesLoading || elevatorsLoading ? <span className="text-xs text-slate-400">Chargement…</span> : (() => {
+                        const clientSites = sites.filter((site) => site.clientId === client.id);
+                        const clientElevators = elevators.filter((elevator) => elevator.clientId === client.id);
+                        return (
+                          <details className="group max-w-xs">
+                            <summary className="cursor-pointer list-none text-xs font-semibold text-slate-700 marker:hidden">
+                              <span>{clientSites.length} site(s)</span><span className="mx-1.5 text-slate-300">·</span><span>{clientElevators.length} ascenseur(s)</span>
+                            </summary>
+                            {(clientSites.length > 0 || clientElevators.length > 0) && (
+                              <div className="mt-2 space-y-2 border-l-2 border-indigo-100 pl-2.5">
+                                {clientSites.map((site) => {
+                                  const siteElevators = clientElevators.filter((elevator) => elevator.siteId === site.id);
+                                  return <div key={site.id}><p className="text-[11px] font-semibold text-slate-700">{site.name || "Site sans nom"} <span className="font-normal text-slate-400">({site.city || "ville non renseignée"})</span></p><p className="text-[10px] text-slate-500">{siteElevators.length ? siteElevators.map((elevator) => elevator.number || elevator.referenceInternal || elevator.serialNumber || "Ascenseur").join(", ") : "Aucun équipement rattaché"}</p></div>;
+                                })}
+                                {clientElevators.filter((elevator) => !clientSites.some((site) => site.id === elevator.siteId)).map((elevator) => <p key={elevator.id} className="text-[10px] text-amber-700">{elevator.number || elevator.referenceInternal || "Ascenseur"} · site non associé</p>)}
+                              </div>
+                            )}
+                          </details>
+                        );
+                      })()}
+                    </td>
                     <td className="px-5 py-4"><span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">{client.paymentType || "Mensuel"}</span></td>
                     <td className="px-5 py-4">
                       {(client.attachments || []).length === 0 ? <span className="text-xs text-slate-400">Aucun fichier</span> : <div className="flex max-w-56 flex-wrap gap-1.5">{client.attachments.map((file, index) => <a key={`${file.downloadURL}-${index}`} href={file.downloadURL} target="_blank" rel="noreferrer" title={file.name} className="inline-flex max-w-full items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-600 hover:bg-blue-50 hover:text-blue-700"><FileText size={13} /><span className="max-w-32 truncate">{file.name}</span></a>)}</div>}
@@ -222,6 +283,7 @@ export default function ClientsPage({ company = {} }) {
           </div>
         )}
       </div>
+      {relatedError && <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">Les informations des sites ou des équipements sont indisponibles : {relatedError.message}</p>}
 
       {modalOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) setModalOpen(false); }}>
         <div role="dialog" aria-modal="true" aria-labelledby="client-modal-title" className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -232,6 +294,7 @@ export default function ClientsPage({ company = {} }) {
           <form onSubmit={saveClient} className="space-y-6 p-5 sm:p-6">
             <div><h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">Informations du client</h3><div className="grid gap-4 sm:grid-cols-2">
               <Field label="Nom / Raison sociale" name="name" value={form.name} onChange={updateField} required />
+              <label className="block text-sm font-medium text-slate-700">Type de client<select required name="clientType" value={form.clientType || "Entreprise"} onChange={updateField} className={INPUT_CLASS}><option>Syndic</option><option>Copropriété</option><option>Promoteur</option><option>Entreprise</option><option>Particulier</option><option>Administration</option></select></label>
               <Field label="Interlocuteur principal" name="mainContact" value={form.mainContact} onChange={updateField} />
               <Field label="Email" name="email" type="email" value={form.email} onChange={updateField} />
               <Field label="Téléphone" name="phone" type="tel" value={form.phone} onChange={updateField} />

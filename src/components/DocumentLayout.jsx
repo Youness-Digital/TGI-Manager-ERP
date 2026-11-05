@@ -2,17 +2,32 @@ import CompanyLogo from "./CompanyLogo";
 import { formatDateSafe } from "../utils/dateUtils";
 
 export function DocumentTable({ columns, rows, caption }) {
+  const columnWeights = columns.map((column, index) => {
+    const width = Number(column.width);
+    if (Number.isFinite(width) && width > 0) return width;
+    return column.align === "right" ? 1 : index === 0 ? 3 : 2;
+  });
+  const totalWeight = columnWeights.reduce((total, width) => total + width, 0) || 1;
+
   return (
-    <div className="document-table-wrap overflow-x-auto">
-      <table className="document-table w-full border-collapse text-left text-sm">
-        {caption && <caption className="mb-3 text-left text-base font-bold text-slate-900">{caption}</caption>}
+    <div className="document-table-wrap w-full max-w-full">
+      <table className="document-table w-full max-w-full table-fixed border-collapse text-left text-sm">
+        {caption && <caption className="mb-3 break-words text-left text-base font-bold text-slate-900">{caption}</caption>}
+        <colgroup>
+          {columns.map((column, index) => (
+            <col
+              key={column.key}
+              style={{ width: `${(columnWeights[index] / totalWeight) * 100}%` }}
+            />
+          ))}
+        </colgroup>
         <thead className="bg-gray-100 text-xs font-bold uppercase tracking-wide text-slate-600 print:bg-gray-100 print:[print-color-adjust:exact]">
           <tr>
             {columns.map((column) => (
               <th
                 key={column.key}
                 scope="col"
-                className={`border-b border-slate-200 px-3 py-2.5 ${column.align === "right" ? "text-right" : "text-left"}`}
+              className={`break-words border-b border-slate-200 px-2 py-2.5 align-middle sm:px-3 ${column.align === "right" ? "text-right" : "text-left"}`}
               >
                 {column.label}
               </th>
@@ -25,7 +40,7 @@ export function DocumentTable({ columns, rows, caption }) {
               {columns.map((column) => (
                 <td
                   key={column.key}
-                  className={`break-words px-3 py-2.5 align-top ${column.align === "right" ? "text-right tabular-nums" : "text-left"}`}
+                  className={`break-words px-2 py-2.5 align-top sm:px-3 ${column.align === "right" ? "text-right tabular-nums" : "text-left"}`}
                 >
                   {column.render ? column.render(row[column.key], row) : row[column.key] ?? "—"}
                 </td>
@@ -70,18 +85,18 @@ export default function DocumentLayout({
         </address>
       </header>
 
-      <section className="mt-6 flex flex-col gap-4 border-l-8 border-blue-600 bg-slate-50 px-5 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between print:border-l-8 print:border-blue-600 print:bg-slate-50 print:[print-color-adjust:exact]">
-        <h1 className="min-w-0 break-words text-xl font-extrabold uppercase tracking-wide text-slate-900 sm:text-2xl">
+      <section className="mt-6 mb-8 flex flex-col gap-4 overflow-hidden rounded-r-lg border-l-8 border-blue-600 bg-[#F8FAFC] px-4 py-4 shadow-sm sm:px-6 sm:py-6 md:flex-row md:items-center md:justify-between print:overflow-hidden print:border-l-8 print:border-blue-600 print:bg-[#F8FAFC] print:[print-color-adjust:exact]">
+        <h1 className="whitespace-nowrap text-xl font-extrabold uppercase tracking-wide text-[#1E293B] sm:text-2xl">
           {documentType}
         </h1>
-        <dl className="flex shrink-0 flex-wrap gap-x-8 gap-y-2 border-t border-slate-200 pt-3 sm:border-l-2 sm:border-t-0 sm:pl-6 sm:pt-0 print:border-l-2 print:border-t-0 print:pl-6 print:pt-0">
-          <div>
+        <dl className="flex w-full min-w-0 flex-wrap gap-4 border-t-2 border-gray-200 pt-4 sm:flex-nowrap sm:gap-8 md:w-auto md:border-l-2 md:border-t-0 md:pt-0 md:pl-6 print:border-l-2 print:border-t-0 print:pl-6 print:pt-0">
+          <div className="flex min-w-0 flex-1 flex-col md:max-w-48">
             <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Référence</dt>
-            <dd className="mt-1 max-w-48 break-all text-sm font-semibold text-slate-800">{reference || "—"}</dd>
+            <dd className="mt-1 break-all font-mono text-sm font-semibold text-gray-800">{reference || "—"}</dd>
           </div>
-          <div>
+          <div className="flex shrink-0 flex-col whitespace-nowrap">
             <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Émis le</dt>
-            <dd className="mt-1 whitespace-nowrap text-sm font-semibold text-slate-800">{formatDateSafe(dateEmission)}</dd>
+            <dd className="mt-1 text-sm font-semibold text-gray-800">{formatDateSafe(dateEmission)}</dd>
           </div>
         </dl>
       </section>

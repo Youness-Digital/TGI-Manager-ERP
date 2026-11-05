@@ -12,6 +12,7 @@ import { auth } from "./firebase";
 import { companySettingsService } from "./services/dbService";
 
 const ClientsPage = lazy(() => import("./pages/ClientsPage"));
+const AscenseursPage = lazy(() => import("./pages/AscenseursPage"));
 const ContratsPage = lazy(() => import("./pages/ContratsPage"));
 const InterventionsPage = lazy(() => import("./pages/InterventionsPage"));
 const RecouvrementPage = lazy(() => import("./pages/RecouvrementPage"));
@@ -192,6 +193,11 @@ export default function App() {
           {activePage === "clients" && (
             <Suspense fallback={<div className="flex min-h-56 items-center justify-center text-sm text-muted">Chargement du module clients…</div>}>
               <ClientsPage profiles={profiles} company={company} />
+            </Suspense>
+          )}
+          {activePage === "ascenseurs" && (
+            <Suspense fallback={<div className="flex min-h-56 items-center justify-center text-sm text-muted">Chargement du parc ascenseurs…</div>}>
+              <AscenseursPage />
             </Suspense>
           )}
           {activePage === "contrats" && (

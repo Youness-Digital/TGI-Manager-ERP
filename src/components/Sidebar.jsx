@@ -2,6 +2,7 @@ import {
   BarChart3,
   Box,
   ClipboardList,
+  Cog,
   FileText,
   HandCoins,
   LayoutDashboard,
@@ -14,6 +15,7 @@ import CompanyLogo from "./CompanyLogo";
 export const NAV_LINKS = [
   { id: "dashboard", label: "Dashboard", Icon: LayoutDashboard },
   { id: "clients", label: "Clients", Icon: Users },
+  { id: "ascenseurs", label: "Ascenseurs & sites", Icon: Cog },
   { id: "recouvrement", label: "Recouvrement", Icon: HandCoins },
   { id: "contrats", label: "Contrats", Icon: FileText },
   { id: "interventions", label: "Interventions", Icon: Wrench },

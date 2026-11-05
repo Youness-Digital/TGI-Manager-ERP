@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, FileCheck2, HandCoins, LoaderCircle, Plus, Search, Upload, X } from "lucide-react";
-import { clientsService, paiementsService, uploadPaymentProof } from "../services/dbService";
+import { clientsService, createInvoicePayment, facturesService, paiementsService, uploadPaymentProof } from "../services/dbService";
 
 const EMPTY_FORM = {
   clientId: "",
+  factureId: "",
   amount: "",
   date: "",
   paymentMethod: "Virement",
   period: "",
+  transactionReference: "",
+  notes: "",
   proofFile: null,
 };
 
@@ -39,20 +42,52 @@ function clientIsOverdue(client) {
   return Number.isFinite(balance) && balance > 0 && dueDate instanceof Date && !Number.isNaN(dueDate.getTime()) && dueDate < new Date();
 }
 
-function PaymentModal({ clients, clientsLoading, onClose, onCreate, saving, error }) {
+function invoiceIsOverdue(invoice) {
+  if (!invoice || invoiceBalance(invoice) <= 0) return false;
+  const rawDate = invoice.dueDate;
+  const dueDate = typeof rawDate?.toDate === "function" ? rawDate.toDate() : rawDate ? new Date(rawDate) : null;
+  return dueDate instanceof Date && !Number.isNaN(dueDate.getTime()) && dueDate < new Date();
+}
+
+function invoiceBalance(invoice) {
+  const total = Number(invoice?.total ?? invoice?.amountDue ?? 0);
+  const paid = Number(invoice?.paidAmount ?? 0);
+  return Math.max(0, Number(invoice?.balanceDue ?? total - paid) || 0);
+}
+
+function invoiceIsActive(invoice) {
+  return !["brouillon", "annulé", "annulée"].includes(String(invoice?.status || "").toLocaleLowerCase("fr-FR"));
+}
+
+function PaymentModal({ clients, clientsLoading, invoices, invoicesLoading, onClose, onCreate, saving, error }) {
   const [form, setForm] = useState(EMPTY_FORM);
+  const clientInvoices = invoices.filter((invoice) => invoice.clientId === form.clientId && invoiceIsActive(invoice) && invoiceBalance(invoice) > 0);
+  const selectedInvoice = clientInvoices.find((invoice) => invoice.id === form.factureId);
+  const selectedClient = clients.find((client) => client.id === form.clientId);
 
   function submit(event) {
     event.preventDefault();
-    const client = clients.find((entry) => entry.id === form.clientId);
-    if (!client) return;
+    if (!selectedClient) return;
     onCreate({
-      clientId: client.id,
-      clientName: client.name || "Client",
+      clientId: selectedClient.id,
+      clientName: selectedClient.name || "Client",
+      factureId: selectedInvoice?.id || "",
+      invoiceNumber: selectedInvoice?.number || selectedInvoice?.reference || "",
+      contratId: selectedInvoice?.contratId || "",
+      devisId: selectedInvoice?.devisId || "",
+      siteId: selectedInvoice?.siteId || "",
+      site: selectedInvoice?.site || null,
+      ascenseurId: selectedInvoice?.ascenseurId || "",
+      ascenseur: selectedInvoice?.ascenseur || null,
+      currency: selectedInvoice?.currency || "EUR",
+      amountDue: selectedInvoice?.total ?? 0,
+      balanceDue: selectedInvoice ? invoiceBalance(selectedInvoice) : 0,
       amount: Number(form.amount),
       date: form.date,
       paymentMethod: form.paymentMethod,
       period: form.period.trim(),
+      transactionReference: form.transactionReference.trim(),
+      notes: form.notes.trim(),
       status: "Payé",
     }, form.proofFile);
   }
@@ -71,7 +106,7 @@ function PaymentModal({ clients, clientsLoading, onClose, onCreate, saving, erro
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-brand">Suivi financier</p>
             <h2 id="payment-modal-title" className="mt-1 text-lg font-bold text-ink">Enregistrer un paiement</h2>
-            <p className="mt-1 text-xs text-muted">Le règlement sera associé à la fiche du client sélectionné.</p>
+            <p className="mt-1 text-xs text-muted">Associez le règlement à une facture pour actualiser automatiquement son solde.</p>
           </div>
           <button type="button" aria-label="Fermer" onClick={onClose} disabled={saving} className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-ink disabled:opacity-40"><X size={18} /></button>
         </div>
@@ -79,17 +114,34 @@ function PaymentModal({ clients, clientsLoading, onClose, onCreate, saving, erro
         <form onSubmit={submit} className="space-y-4">
           <label className="block text-xs font-semibold text-slate-600">
             Client <span className="text-red-500">*</span>
-            <select required value={form.clientId} onChange={(event) => setForm((current) => ({ ...current, clientId: event.target.value }))} disabled={clientsLoading || !hasClients} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50 disabled:opacity-60">
+            <select required value={form.clientId} onChange={(event) => setForm((current) => ({ ...current, clientId: event.target.value, factureId: "", amount: "", period: "" }))} disabled={clientsLoading || !hasClients} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50 disabled:opacity-60">
               <option value="">{clientsLoading ? "Chargement des clients…" : hasClients ? "Sélectionner un client" : "Aucun client disponible"}</option>
               {clients.map((client) => <option key={client.id} value={client.id}>{client.name || "Client sans nom"}</option>)}
             </select>
             {!clientsLoading && !hasClients && <span className="mt-1.5 block text-[11px] font-normal text-amber-700">Créez d’abord une fiche client pour enregistrer son paiement.</span>}
           </label>
 
+          <label className="block text-xs font-semibold text-slate-600">
+            Facture à régler
+            <select value={form.factureId} disabled={!form.clientId || invoicesLoading} onChange={(event) => {
+              const invoice = clientInvoices.find((entry) => entry.id === event.target.value);
+              setForm((current) => ({
+                ...current,
+                factureId: event.target.value,
+                amount: invoice ? String(invoiceBalance(invoice)) : current.amount,
+                period: invoice ? (current.period || invoice.number || invoice.reference || "") : current.period,
+              }));
+            }} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50 disabled:opacity-60">
+              <option value="">{invoicesLoading ? "Chargement des factures…" : "Paiement non affecté à une facture"}</option>
+              {clientInvoices.map((invoice) => <option key={invoice.id} value={invoice.id}>{invoice.number || invoice.reference || invoice.id} · Solde {formatAmount(invoiceBalance(invoice))}</option>)}
+            </select>
+            {selectedInvoice && <span className="mt-1.5 block text-[10px] font-normal text-slate-500">Solde restant : {formatAmount(invoiceBalance(selectedInvoice))}</span>}
+          </label>
+
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block text-xs font-semibold text-slate-600">
               Montant payé (€) <span className="text-red-500">*</span>
-              <input required min="0.01" step="0.01" type="number" value={form.amount} onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))} placeholder="0,00" className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition placeholder:text-slate-400 focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
+              <input required min="0.01" max={selectedInvoice ? invoiceBalance(selectedInvoice) : undefined} step="0.01" type="number" value={form.amount} onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))} placeholder="0,00" className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition placeholder:text-slate-400 focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
             </label>
             <label className="block text-xs font-semibold text-slate-600">
               Date du paiement <span className="text-red-500">*</span>
@@ -103,10 +155,17 @@ function PaymentModal({ clients, clientsLoading, onClose, onCreate, saving, erro
             </label>
             <label className="block text-xs font-semibold text-slate-600">
               Mois / trimestre concerné <span className="text-red-500">*</span>
-              <input required maxLength={80} value={form.period} onChange={(event) => setForm((current) => ({ ...current, period: event.target.value }))} placeholder="Ex. Janvier 2026 ou T1 2026" className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition placeholder:text-slate-400 focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
+              <input required={!form.factureId} maxLength={80} value={form.period} onChange={(event) => setForm((current) => ({ ...current, period: event.target.value }))} placeholder="Ex. Janvier 2026 ou T1 2026" className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition placeholder:text-slate-400 focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
+            </label>
+            <label className="block text-xs font-semibold text-slate-600 sm:col-span-2">
+              Référence de transaction
+              <input maxLength={120} value={form.transactionReference} onChange={(event) => setForm((current) => ({ ...current, transactionReference: event.target.value }))} placeholder="N° de virement, chèque ou bordereau" className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none placeholder:text-slate-400 focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
             </label>
           </div>
 
+          <label className="block text-xs font-semibold text-slate-600">Notes
+            <textarea rows={2} maxLength={1000} value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} className="mt-2 w-full resize-y rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
+          </label>
           <label className="block text-xs font-semibold text-slate-600">
             Preuve de paiement (PDF, JPG ou PNG)
             <input type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" onChange={(event) => setForm((current) => ({ ...current, proofFile: event.target.files?.[0] || null }))} className="mt-2 block w-full rounded-xl border border-line bg-slate-50 px-3 py-2.5 text-xs font-normal text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-blue-700" />
@@ -130,8 +189,10 @@ function PaymentModal({ clients, clientsLoading, onClose, onCreate, saving, erro
 export default function RecouvrementPage({ company = {}, profiles = {} }) {
   const [payments, setPayments] = useState([]);
   const [clients, setClients] = useState([]);
+  const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [clientsLoading, setClientsLoading] = useState(true);
+  const [invoicesLoading, setInvoicesLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -173,11 +234,25 @@ export default function RecouvrementPage({ company = {}, profiles = {} }) {
         setLoadError("La liste des clients n’a pas pu être chargée. Vérifiez la connexion et les règles Firestore.");
       },
     );
+    const unsubscribeInvoices = facturesService.subscribe(
+      (records) => {
+        if (!active) return;
+        setInvoices(records);
+        setInvoicesLoading(false);
+      },
+      (error) => {
+        if (!active) return;
+        console.error("Impossible de charger les factures nécessaires au rapprochement des paiements.", error);
+        setInvoicesLoading(false);
+        setLoadError("Les factures n’ont pas pu être chargées. Vérifiez la connexion et les règles Firestore.");
+      },
+    );
 
     return () => {
       active = false;
       unsubscribePayments();
       unsubscribeClients();
+      unsubscribeInvoices();
     };
   }, []);
 
@@ -186,13 +261,14 @@ export default function RecouvrementPage({ company = {}, profiles = {} }) {
     const ordered = [...payments].sort((a, b) => dateValue(b.date) - dateValue(a.date));
     return ordered.filter((payment) => {
       const client = clients.find((entry) => entry.id === payment.clientId);
-      const overdue = clientIsOverdue(client);
+      const invoice = invoices.find((entry) => entry.id === payment.factureId);
+      const overdue = payment.factureId ? invoiceIsOverdue(invoice) : clientIsOverdue(client);
       const matchesStatus = paymentFilter === "Tous" || (paymentFilter === "En retard" ? overdue : !overdue);
-      const matchesQuery = !query || [payment.clientName, payment.period, payment.paymentMethod, payment.amount, payment.status]
+      const matchesQuery = !query || [payment.clientName, payment.period, payment.paymentMethod, payment.amount, payment.status, payment.invoiceNumber, invoice?.number, invoice?.reference]
         .some((value) => String(value ?? "").toLocaleLowerCase("fr-FR").includes(query));
       return matchesStatus && matchesQuery;
     });
-  }, [payments, clients, search, paymentFilter]);
+  }, [payments, clients, invoices, search, paymentFilter]);
 
   const totalCollected = useMemo(() => payments.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0), [payments]);
 
@@ -200,7 +276,7 @@ export default function RecouvrementPage({ company = {}, profiles = {} }) {
     setSaving(true);
     setFormError("");
     try {
-      const paymentId = await paiementsService.create(record);
+      const paymentId = await createInvoicePayment(record);
       setModalOpen(false);
       setActionError("");
       if (proofFile) {
@@ -261,9 +337,20 @@ export default function RecouvrementPage({ company = {}, profiles = {} }) {
       const readyCompany = await prepareCompanyForPdf(company);
       const clientsWithPayments = clients.map((client) => {
         const clientPayments = payments.filter((payment) => payment.clientId === client.id);
+        const clientInvoices = invoices.filter((invoice) => invoice.clientId === client.id && invoiceIsActive(invoice));
+        const outstandingInvoices = clientInvoices.filter((invoice) => invoiceBalance(invoice) > 0);
+        const outstandingBalance = outstandingInvoices.reduce((sum, invoice) => sum + invoiceBalance(invoice), 0);
+        const nextDueDate = outstandingInvoices
+          .map((invoice) => invoice.dueDate)
+          .filter(Boolean)
+          .sort((a, b) => dateValue(a) - dateValue(b))[0];
         return {
           ...client,
           amountPaid: clientPayments.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0),
+          amountDue: clientInvoices.reduce((sum, invoice) => sum + Number(invoice.total || 0), 0),
+          balanceDue: outstandingBalance,
+          dueDate: nextDueDate || client.dueDate || "",
+          paymentStatus: outstandingInvoices.some(invoiceIsOverdue) ? "En retard" : outstandingBalance > 0 ? "À payer" : "À jour",
         };
       });
       generateFicheRecouvrementPDF(clientsWithPayments, { company: readyCompany, director: profiles.director, salesperson: profiles.salesperson });
@@ -283,7 +370,7 @@ export default function RecouvrementPage({ company = {}, profiles = {} }) {
           <p className="mt-1 text-xs text-muted">Consultez les règlements reçus et préparez vos relances.</p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
-          <button onClick={exportRecoverySheet} disabled={loading || clientsLoading} className="inline-flex items-center justify-center gap-2 rounded-xl border border-line bg-white px-4 py-3 text-xs font-semibold text-slate-600 transition hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-50">
+          <button onClick={exportRecoverySheet} disabled={loading || clientsLoading || invoicesLoading} className="inline-flex items-center justify-center gap-2 rounded-xl border border-line bg-white px-4 py-3 text-xs font-semibold text-slate-600 transition hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-50">
             <Download size={15} /> Exporter Fiche Recouvrement
           </button>
           <button onClick={() => { setFormError(""); setModalOpen(true); }} className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3 text-xs font-bold text-white shadow-sm transition hover:bg-brand-dark">
@@ -329,7 +416,7 @@ export default function RecouvrementPage({ company = {}, profiles = {} }) {
         </div>
         {loadError ? (
           <div role="alert" className="m-5 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-xs leading-5 text-red-700">{loadError}</div>
-        ) : loading ? (
+        ) : loading || invoicesLoading ? (
           <div className="flex min-h-56 flex-col items-center justify-center gap-3 text-sm text-muted" role="status"><LoaderCircle size={25} className="animate-spin text-brand" /><span>Loading... Chargement des paiements</span></div>
         ) : filteredPayments.length === 0 ? (
           <div className="flex min-h-64 flex-col items-center justify-center px-5 text-center">
@@ -340,17 +427,19 @@ export default function RecouvrementPage({ company = {}, profiles = {} }) {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[790px] text-left">
+            <table className="w-full min-w-[900px] text-left">
               <thead className="bg-slate-50 text-[9px] font-bold uppercase tracking-[0.13em] text-slate-400">
-                <tr><th className="px-5 py-3.5">Client</th><th className="px-4 py-3.5">Date</th><th className="px-4 py-3.5">Période</th><th className="px-4 py-3.5">Méthode</th><th className="px-4 py-3.5">Montant</th><th className="px-4 py-3.5">État du compte</th><th className="px-4 py-3.5">Preuve</th><th className="px-5 py-3.5 text-right">Reçu</th></tr>
+                <tr><th className="px-5 py-3.5">Client</th><th className="px-4 py-3.5">Facture</th><th className="px-4 py-3.5">Date</th><th className="px-4 py-3.5">Période</th><th className="px-4 py-3.5">Méthode</th><th className="px-4 py-3.5">Montant</th><th className="px-4 py-3.5">État du compte</th><th className="px-4 py-3.5">Preuve</th><th className="px-5 py-3.5 text-right">Reçu</th></tr>
               </thead>
               <tbody className="divide-y divide-line">
                 {filteredPayments.map((payment) => {
                   const client = clients.find((entry) => entry.id === payment.clientId);
-                  const overdue = clientIsOverdue(client);
+                  const invoice = invoices.find((entry) => entry.id === payment.factureId);
+                  const overdue = payment.factureId ? invoiceIsOverdue(invoice) : clientIsOverdue(client);
                   return (
                     <tr key={payment.id} className="text-xs transition hover:bg-slate-50/70">
                       <td className="px-5 py-3.5"><p className="font-semibold text-ink">{client?.name || payment.clientName || "Client"}</p></td>
+                      <td className="px-4 py-3.5 text-slate-600">{payment.invoiceNumber || invoice?.number || invoice?.reference || "Non affecté"}<span className="block text-[10px] text-slate-400">{payment.site?.name || ""}{payment.ascenseur?.referenceInternal ? ` · ${payment.ascenseur.referenceInternal}` : ""}</span></td>
                       <td className="whitespace-nowrap px-4 py-3.5 text-slate-500">{formatDate(payment.date)}</td>
                       <td className="px-4 py-3.5 text-slate-500">{payment.period || "—"}</td>
                       <td className="px-4 py-3.5 text-slate-500">{payment.paymentMethod || payment.method || "—"}</td>
@@ -369,7 +458,7 @@ export default function RecouvrementPage({ company = {}, profiles = {} }) {
         )}
       </div>
       {actionError && <p role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-xs text-red-700">{actionError}</p>}
-      {modalOpen && <PaymentModal clients={clients} clientsLoading={clientsLoading} onClose={() => setModalOpen(false)} onCreate={createPayment} saving={saving} error={formError} />}
+      {modalOpen && <PaymentModal clients={clients} clientsLoading={clientsLoading} invoices={invoices} invoicesLoading={invoicesLoading} onClose={() => setModalOpen(false)} onCreate={createPayment} saving={saving} error={formError} />}
     </section>
   );
 }

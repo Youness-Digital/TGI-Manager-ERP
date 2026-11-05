@@ -1,12 +1,32 @@
 import { useEffect, useMemo, useState } from "react";
 import { ClipboardList, FileDown, LoaderCircle, Plus, Search, Truck, X } from "lucide-react";
-import { commandesService, stockService, updateStockMovement } from "../services/dbService";
+import {
+  ascenseursService,
+  clientsService,
+  commandesService,
+  contratsService,
+  devisService,
+  facturesService,
+  sitesService,
+  stockService,
+  updateStockMovement,
+} from "../services/dbService";
 
 const EMPTY_ITEM = { stockItemId: "", reference: "", description: "", quantity: "1", unitPrice: "" };
 const EMPTY_FORM = {
   documentType: "Commande",
   recipientType: "Fournisseur",
   recipient: "",
+  clientId: "",
+  siteId: "",
+  ascenseurId: "",
+  devisId: "",
+  contratId: "",
+  factureId: "",
+  commandeId: "",
+  status: "Brouillon",
+  expectedDate: "",
+  observations: "",
   date: "",
   items: [{ ...EMPTY_ITEM }],
   taxRate: "20",
@@ -26,11 +46,15 @@ function dateValue(value) {
 
 function documentType(record) {
   const type = String(record.documentType || record.type || record.bonType || "").toLocaleLowerCase("fr-FR");
-  return type.includes("livraison") ? "Livraison" : "Commande";
+  if (type.includes("livraison")) return "Livraison";
+  if (type.includes("réception") || type.includes("reception")) return "Réception";
+  return "Commande";
 }
 
 async function createBonWithStockMovements(record) {
-  const direction = documentType(record) === "Livraison" ? -1 : 1;
+  const type = documentType(record);
+  const direction = type === "Livraison" ? -1 : type === "Réception" ? 1 : 0;
+  if (!direction) return commandesService.create(record);
   const quantitiesByItem = new Map();
   for (const article of record.items || []) {
     if (!article.stockItemId) continue;
@@ -41,7 +65,17 @@ async function createBonWithStockMovements(record) {
   try {
     for (const [itemId, quantity] of quantitiesByItem) {
       const movement = { itemId, quantityChange: direction * quantity };
-      await updateStockMovement(movement.itemId, movement.quantityChange);
+      await updateStockMovement(movement.itemId, movement.quantityChange, {
+        date: record.date,
+        reason: `Bon de ${type.toLocaleLowerCase("fr-FR")}`,
+        sourceType: `Bon ${type}`,
+        devisId: record.devisId || "",
+        contratId: record.contratId || "",
+        factureId: record.factureId || "",
+        clientId: record.clientId || "",
+        fournisseurId: record.fournisseurId || "",
+        notes: record.refLiee || "",
+      });
       appliedMovements.push(movement);
     }
     return await commandesService.create(record);
@@ -49,7 +83,10 @@ async function createBonWithStockMovements(record) {
     const rollbackErrors = [];
     for (const movement of appliedMovements.reverse()) {
       try {
-        await updateStockMovement(movement.itemId, -movement.quantityChange);
+        await updateStockMovement(movement.itemId, -movement.quantityChange, {
+          reason: "Annulation d’un mouvement après échec de création du bon",
+          sourceType: "Annulation",
+        });
       } catch (rollbackError) {
         rollbackErrors.push(rollbackError);
       }
@@ -65,9 +102,18 @@ async function createBonWithStockMovements(record) {
   }
 }
 
-function BonModal({ stock, stockLoading, onClose, onCreate, saving, error }) {
+function BonModal({ stock, stockLoading, bons, clients, sites, ascenseurs, devis, factures, contrats, onClose, onCreate, saving, error }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const isDelivery = form.documentType === "Livraison";
+  const isReceipt = form.documentType === "Réception";
+  const usesClient = isDelivery || (!isReceipt && form.recipientType === "Client");
+  const selectedClient = clients.find((client) => client.id === form.clientId);
+  const clientSites = sites.filter((site) => site.clientId === form.clientId);
+  const siteAscenseurs = ascenseurs.filter((elevator) => elevator.siteId === form.siteId);
+  const linkedOrders = bons.filter((bon) => documentType(bon) === "Commande");
+  const availableQuotes = devis.filter((quote) => !form.clientId || quote.clientId === form.clientId);
+  const availableInvoices = factures.filter((invoice) => !form.clientId || invoice.clientId === form.clientId);
+  const availableContracts = contrats.filter((contract) => !form.clientId || contract.clientId === form.clientId);
   const subtotal = form.items.reduce((sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), 0);
   const discountAmount = subtotal * (Number(form.discountPercent) || 0) / 100;
   const taxableAmount = subtotal - discountAmount;
@@ -76,6 +122,26 @@ function BonModal({ stock, stockLoading, onClose, onCreate, saving, error }) {
 
   function updateField(field, value) {
     setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function selectOrder(orderId) {
+    const order = linkedOrders.find((entry) => entry.id === orderId);
+    if (!order) {
+      setForm((current) => ({ ...current, commandeId: "", recipient: "", items: [{ ...EMPTY_ITEM }] }));
+      return;
+    }
+    setForm((current) => ({
+      ...current,
+      commandeId: order.id,
+      recipient: order.recipient || "",
+      items: (order.items || []).map((item) => ({
+        stockItemId: item.stockItemId || "",
+        reference: item.reference || "",
+        description: item.description || item.designation || "",
+        quantity: String(item.quantity ?? 1),
+        unitPrice: String(item.unitPrice ?? ""),
+      })),
+    }));
   }
 
   function updateItem(index, field, value) {
@@ -95,7 +161,13 @@ function BonModal({ stock, stockLoading, onClose, onCreate, saving, error }) {
 
   function submit(event) {
     event.preventDefault();
-    const recipient = form.recipient.trim();
+    const recipient = usesClient ? (selectedClient?.name || "").trim() : form.recipient.trim();
+    const selectedSite = sites.find((site) => site.id === form.siteId);
+    const selectedElevator = ascenseurs.find((elevator) => elevator.id === form.ascenseurId);
+    const selectedQuote = devis.find((quote) => quote.id === form.devisId);
+    const selectedInvoice = factures.find((invoice) => invoice.id === form.factureId);
+    const selectedContract = contrats.find((contract) => contract.id === form.contratId);
+    const selectedOrder = linkedOrders.find((order) => order.id === form.commandeId);
     const items = form.items.map((item) => ({
       stockItemId: item.stockItemId,
       reference: item.reference,
@@ -106,8 +178,26 @@ function BonModal({ stock, stockLoading, onClose, onCreate, saving, error }) {
     }));
     onCreate({
       documentType: form.documentType,
-      recipientType: form.recipientType,
       recipient,
+      recipientType: usesClient ? "Client" : "Fournisseur",
+      clientId: usesClient ? form.clientId : (selectedOrder?.clientId || ""),
+      clientName: usesClient ? recipient : (selectedOrder?.clientName || ""),
+      fournisseurName: usesClient ? "" : recipient,
+      siteId: form.siteId || selectedOrder?.siteId || "",
+      site: selectedSite ? { name: selectedSite.name || "", address: selectedSite.address || "", city: selectedSite.city || "" } : (selectedOrder?.site || null),
+      ascenseurId: form.ascenseurId || selectedOrder?.ascenseurId || "",
+      ascenseur: selectedElevator ? { referenceInternal: selectedElevator.referenceInternal || "", serialNumber: selectedElevator.serialNumber || "", brand: selectedElevator.brand || selectedElevator.marque || "" } : (selectedOrder?.ascenseur || null),
+      devisId: form.devisId,
+      devisReference: selectedQuote?.number || selectedQuote?.reference || "",
+      contratId: form.contratId,
+      contratReference: selectedContract?.number || selectedContract?.reference || "",
+      factureId: form.factureId,
+      factureReference: selectedInvoice?.number || selectedInvoice?.reference || "",
+      commandeId: form.commandeId,
+      commandeReference: selectedOrder?.reference || selectedOrder?.number || "",
+      status: form.status,
+      expectedDate: form.expectedDate,
+      observations: form.observations.trim(),
       date: form.date,
       items,
       subtotal,
@@ -116,10 +206,11 @@ function BonModal({ stock, stockLoading, onClose, onCreate, saving, error }) {
       taxRate: Number(form.taxRate) || 0,
       taxAmount,
       total: totalWithTax,
-      supplier: !isDelivery && form.recipientType === "Fournisseur" ? recipient : "",
-      customer: (isDelivery || form.recipientType === "Client") ? recipient : "",
-      client: (isDelivery || form.recipientType === "Client") ? recipient : "",
-      relatedReference: "",
+      supplier: !usesClient ? recipient : "",
+      customer: usesClient ? recipient : "",
+      client: usesClient ? recipient : "",
+      relatedReference: selectedOrder?.reference || selectedOrder?.number || selectedQuote?.number || selectedQuote?.reference || selectedContract?.number || selectedContract?.reference || selectedInvoice?.number || selectedInvoice?.reference || "",
+      refLiee: selectedOrder?.reference || selectedOrder?.number || selectedQuote?.number || selectedQuote?.reference || selectedContract?.number || selectedContract?.reference || selectedInvoice?.number || selectedInvoice?.reference || "",
     });
   }
 
@@ -150,29 +241,108 @@ function BonModal({ stock, stockLoading, onClose, onCreate, saving, error }) {
                   ...current,
                   documentType: nextType,
                   recipientType: nextType === "Livraison" ? "Client" : "Fournisseur",
+                  clientId: nextType === "Livraison" ? current.clientId : "",
+                  commandeId: "",
+                  status: nextType === "Livraison" ? "Livré" : nextType === "Réception" ? "Reçu" : "Brouillon",
                 }));
               }} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50">
                 <option value="Commande">Bon de commande</option>
                 <option value="Livraison">Bon de livraison</option>
+                <option value="Réception">Bon de réception fournisseur</option>
               </select>
             </label>
             <label className="block text-xs font-semibold text-slate-600">
-              Destinataire : {isDelivery ? "Client" : form.recipientType}
-              {!isDelivery && (
+              Destinataire : {usesClient ? "Client" : "Fournisseur"}
+              {!isDelivery && !isReceipt && (
                 <select value={form.recipientType} onChange={(event) => updateField("recipientType", event.target.value)} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50">
                   <option value="Fournisseur">Fournisseur</option>
                   <option value="Client">Client</option>
                 </select>
               )}
-              {isDelivery && <span className="mt-2 block rounded-xl border border-line bg-slate-100 px-3.5 py-3 text-sm font-normal text-slate-500">Client</span>}
+              {(isDelivery || isReceipt) && <span className="mt-2 block rounded-xl border border-line bg-slate-100 px-3.5 py-3 text-sm font-normal text-slate-500">{isDelivery ? "Client" : "Fournisseur"}</span>}
             </label>
-            <label className="block text-xs font-semibold text-slate-600 sm:col-span-2">
-              Nom du destinataire <span className="text-red-500">*</span>
-              <input required maxLength={160} value={form.recipient} onChange={(event) => updateField("recipient", event.target.value)} placeholder={isDelivery ? "Nom du client" : form.recipientType === "Client" ? "Nom du client" : "Nom du fournisseur"} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition placeholder:text-slate-400 focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
-            </label>
+            {usesClient ? (
+              <label className="block text-xs font-semibold text-slate-600 sm:col-span-2">
+                Client <span className="text-red-500">*</span>
+                <select required value={form.clientId} onChange={(event) => {
+                  const clientId = event.target.value;
+                  setForm((current) => ({ ...current, clientId, siteId: "", ascenseurId: "", devisId: "", contratId: "", factureId: "" }));
+                }} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50">
+                  <option value="">Sélectionner un client</option>
+                  {clients.map((client) => <option key={client.id} value={client.id}>{client.name || "Client sans nom"}</option>)}
+                </select>
+              </label>
+            ) : (
+              <label className="block text-xs font-semibold text-slate-600 sm:col-span-2">
+                Fournisseur <span className="text-red-500">*</span>
+                <input required maxLength={160} value={form.recipient} onChange={(event) => updateField("recipient", event.target.value)} placeholder="Nom du fournisseur" className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none placeholder:text-slate-400 focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
+              </label>
+            )}
+            {isReceipt && (
+              <label className="block text-xs font-semibold text-slate-600 sm:col-span-2">
+                Commande fournisseur liée
+                <select value={form.commandeId} onChange={(event) => selectOrder(event.target.value)} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50">
+                  <option value="">Réception sans commande associée</option>
+                  {linkedOrders.map((order) => <option key={order.id} value={order.id}>{order.reference || order.number || order.id} · {order.recipient || "Fournisseur"}</option>)}
+                </select>
+              </label>
+            )}
+            {usesClient && form.clientId && (
+              <>
+                <label className="block text-xs font-semibold text-slate-600">
+                  Site d’intervention / livraison
+                  <select value={form.siteId} onChange={(event) => setForm((current) => ({ ...current, siteId: event.target.value, ascenseurId: "" }))} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50">
+                    <option value="">Aucun site sélectionné</option>
+                    {clientSites.map((site) => <option key={site.id} value={site.id}>{site.name || "Site"} · {site.city || "Ville non renseignée"}</option>)}
+                  </select>
+                </label>
+                <label className="block text-xs font-semibold text-slate-600">
+                  Ascenseur / équipement
+                  <select value={form.ascenseurId} onChange={(event) => updateField("ascenseurId", event.target.value)} disabled={!form.siteId} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50 disabled:opacity-60">
+                    <option value="">Aucun équipement sélectionné</option>
+                    {siteAscenseurs.map((elevator) => <option key={elevator.id} value={elevator.id}>{elevator.referenceInternal || elevator.serialNumber || "Ascenseur"} · {elevator.brand || elevator.marque || "Marque non renseignée"}</option>)}
+                  </select>
+                </label>
+                <label className="block text-xs font-semibold text-slate-600">
+                  Devis lié
+                  <select value={form.devisId} onChange={(event) => updateField("devisId", event.target.value)} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50">
+                    <option value="">Aucun devis lié</option>
+                    {availableQuotes.map((quote) => <option key={quote.id} value={quote.id}>{quote.number || quote.reference || quote.id}</option>)}
+                  </select>
+                </label>
+                <label className="block text-xs font-semibold text-slate-600">
+                  Contrat lié
+                  <select value={form.contratId} onChange={(event) => updateField("contratId", event.target.value)} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50">
+                    <option value="">Aucun contrat lié</option>
+                    {availableContracts.map((contract) => <option key={contract.id} value={contract.id}>{contract.number || contract.reference || contract.id}</option>)}
+                  </select>
+                </label>
+                <label className="block text-xs font-semibold text-slate-600">
+                  Facture liée
+                  <select value={form.factureId} onChange={(event) => updateField("factureId", event.target.value)} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50">
+                    <option value="">Aucune facture liée</option>
+                    {availableInvoices.map((invoice) => <option key={invoice.id} value={invoice.id}>{invoice.number || invoice.reference || invoice.id}</option>)}
+                  </select>
+                </label>
+              </>
+            )}
             <label className="block text-xs font-semibold text-slate-600 sm:col-span-2">
               Date <span className="text-red-500">*</span>
               <input required type="date" value={form.date} onChange={(event) => updateField("date", event.target.value)} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none transition focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
+            </label>
+            <label className="block text-xs font-semibold text-slate-600">
+              Statut
+              <select value={form.status} onChange={(event) => updateField("status", event.target.value)} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50">
+                <option>Brouillon</option><option>En cours</option><option>Partiellement reçu</option><option>Reçu</option><option>Livré</option><option>Annulé</option>
+              </select>
+            </label>
+            {form.documentType === "Commande" && <label className="block text-xs font-semibold text-slate-600">
+              Date prévue
+              <input type="date" value={form.expectedDate} onChange={(event) => updateField("expectedDate", event.target.value)} className="mt-2 w-full rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
+            </label>}
+            <label className="block text-xs font-semibold text-slate-600 sm:col-span-2">
+              Observations
+              <textarea rows={2} maxLength={1000} value={form.observations} onChange={(event) => updateField("observations", event.target.value)} className="mt-2 w-full resize-y rounded-xl border border-line bg-slate-50 px-3.5 py-3 text-sm font-normal text-ink outline-none focus:border-brand focus:bg-white focus:ring-4 focus:ring-blue-50" />
             </label>
           </div>
 
@@ -250,6 +420,12 @@ function BonModal({ stock, stockLoading, onClose, onCreate, saving, error }) {
 export default function BonsPage({ company = {}, profiles = {} }) {
   const [bons, setBons] = useState([]);
   const [stock, setStock] = useState([]);
+  const [clients, setClients] = useState([]);
+  const [sites, setSites] = useState([]);
+  const [ascenseurs, setAscenseurs] = useState([]);
+  const [devis, setDevis] = useState([]);
+  const [factures, setFactures] = useState([]);
+  const [contrats, setContrats] = useState([]);
   const [loading, setLoading] = useState(true);
   const [stockLoading, setStockLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -290,11 +466,27 @@ export default function BonsPage({ company = {}, profiles = {} }) {
         setStockLoading(false);
       },
     );
+    const unsubscribeRelated = [
+      [clientsService, setClients, "clients"],
+      [sitesService, setSites, "sites"],
+      [ascenseursService, setAscenseurs, "ascenseurs"],
+      [devisService, setDevis, "devis"],
+      [facturesService, setFactures, "factures"],
+      [contratsService, setContrats, "contrats"],
+    ].map(([service, setRecords, label]) => service.subscribe(
+      (records) => { if (active) setRecords(records); },
+      (error) => {
+        if (!active) return;
+        console.error(`Impossible de charger ${label} pour les relations des bons.`, error);
+        setLoadError("Certaines données liées aux bons n’ont pas pu être chargées. Vérifiez la connexion et les règles Firestore.");
+      },
+    ));
 
     return () => {
       active = false;
       unsubscribe();
       unsubscribeStock();
+      unsubscribeRelated.forEach((unsubscribeRecord) => unsubscribeRecord());
     };
   }, []);
 
@@ -308,6 +500,10 @@ export default function BonsPage({ company = {}, profiles = {} }) {
         bon.customer,
         bon.client,
         bon.reference,
+        bon.clientName,
+        bon.fournisseurName,
+        bon.refLiee,
+        bon.site?.name,
         bon.documentType,
         ...(bon.items || bon.articles || []).map((item) => item.description || item.designation),
       ].some((value) => String(value ?? "").toLocaleLowerCase("fr-FR").includes(query)))
@@ -337,6 +533,8 @@ export default function BonsPage({ company = {}, profiles = {} }) {
       const options = { company: readyCompany, director: profiles.director, salesperson: profiles.salesperson };
       if (documentType(bon) === "Livraison") {
         pdf.generateBonLivraisonPDF(bon, options);
+      } else if (documentType(bon) === "Réception") {
+        pdf.generateBonReceptionPDF(bon, options);
       } else {
         pdf.generateBonCommandePDF(bon, options);
       }
@@ -349,6 +547,7 @@ export default function BonsPage({ company = {}, profiles = {} }) {
   const counts = useMemo(() => ({
     Commande: bons.filter((bon) => documentType(bon) === "Commande").length,
     Livraison: bons.filter((bon) => documentType(bon) === "Livraison").length,
+    Réception: bons.filter((bon) => documentType(bon) === "Réception").length,
   }), [bons]);
 
   return (
@@ -356,15 +555,15 @@ export default function BonsPage({ company = {}, profiles = {} }) {
       <div className="erp-page-header flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-brand">Achats & logistique</p>
-          <h2 className="mt-1 text-xl font-bold tracking-tight text-ink">Bons de commande & livraison</h2>
-          <p className="mt-1 text-xs text-muted">Centralisez vos commandes et les bons de livraison associés.</p>
+          <h2 className="mt-1 text-xl font-bold tracking-tight text-ink">Bons de commande, livraison & réception</h2>
+          <p className="mt-1 text-xs text-muted">Reliez les bons aux clients, sites, équipements et documents commerciaux.</p>
         </div>
         <button onClick={() => { setFormError(""); setModalOpen(true); }} className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3 text-xs font-bold text-white shadow-sm transition hover:bg-brand-dark">
           <Plus size={16} /> Créer un bon
         </button>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-3">
         <article className="rounded-2xl border border-line bg-white p-5 shadow-card">
           <div className="flex items-center justify-between">
             <div><p className="text-xs font-medium text-muted">Bons de commande</p><p className="mt-2 text-2xl font-bold tracking-tight text-ink">{loading ? "—" : counts.Commande}</p></div>
@@ -378,6 +577,13 @@ export default function BonsPage({ company = {}, profiles = {} }) {
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600"><Truck size={19} /></div>
           </div>
           <p className="mt-2 text-[11px] text-slate-400">Livraisons clients enregistrées</p>
+        </article>
+        <article className="rounded-2xl border border-line bg-white p-5 shadow-card">
+          <div className="flex items-center justify-between">
+            <div><p className="text-xs font-medium text-muted">Bons de réception</p><p className="mt-2 text-2xl font-bold tracking-tight text-ink">{loading ? "—" : counts.Réception}</p></div>
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50 text-amber-700"><Truck size={19} /></div>
+          </div>
+          <p className="mt-2 text-[11px] text-slate-400">Réceptions fournisseurs et entrées stock</p>
         </article>
       </div>
 
@@ -393,9 +599,9 @@ export default function BonsPage({ company = {}, profiles = {} }) {
           </label>
         </div>
         <div className="flex gap-1 border-b border-line px-4 pt-3 sm:px-5">
-          {["Tous", "Commande", "Livraison"].map((tab) => (
+          {["Tous", "Commande", "Livraison", "Réception"].map((tab) => (
             <button key={tab} onClick={() => setActiveTab(tab)} aria-pressed={activeTab === tab} className={`rounded-t-lg border-b-2 px-3 py-2.5 text-xs font-semibold transition ${activeTab === tab ? "border-brand text-brand" : "border-transparent text-slate-500 hover:text-ink"}`}>
-              {tab === "Tous" ? "Tous les bons" : `${tab === "Commande" ? "Commandes" : "Livraisons"} (${counts[tab]})`}
+              {tab === "Tous" ? "Tous les bons" : `${tab === "Commande" ? "Commandes" : tab === "Livraison" ? "Livraisons" : "Réceptions"} (${counts[tab]})`}
             </button>
           ))}
         </div>
@@ -420,12 +626,12 @@ export default function BonsPage({ company = {}, profiles = {} }) {
                 {filteredBons.map((bon) => {
                   const kind = documentType(bon);
                   const items = bon.items || bon.articles || [];
-                  const recipient = bon.recipient || bon.supplier || bon.customer || bon.client || "—";
+                  const recipient = bon.clientName || bon.fournisseurName || bon.recipient || bon.supplier || bon.customer || bon.client || "—";
                   return (
                     <tr key={bon.id} className="text-xs transition hover:bg-slate-50/70">
-                      <td className="px-5 py-3.5"><span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${kind === "Livraison" ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"}`}>{kind}</span></td>
-                      <td className="whitespace-nowrap px-4 py-3.5 font-semibold text-ink">{bon.reference || bon.number || bon.id}</td>
-                      <td className="px-4 py-3.5 text-slate-600">{recipient}</td>
+                      <td className="px-5 py-3.5"><span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${kind === "Livraison" ? "bg-emerald-50 text-emerald-700" : kind === "Réception" ? "bg-amber-50 text-amber-700" : "bg-blue-50 text-blue-700"}`}>{kind}</span></td>
+                      <td className="whitespace-nowrap px-4 py-3.5 font-semibold text-ink">{bon.reference || bon.number || bon.id}<span className="block text-[10px] font-normal text-slate-400">{bon.status || "—"}</span></td>
+                      <td className="px-4 py-3.5 text-slate-600">{recipient}<span className="block text-[10px] text-slate-400">{bon.site?.name || ""}{bon.refLiee ? ` · Lié à ${bon.refLiee}` : ""}</span></td>
                       <td className="whitespace-nowrap px-4 py-3.5 text-slate-500">{formatDate(bon.date)}</td>
                       <td className="px-4 py-3.5 text-slate-500">{items.length} {items.length === 1 ? "ligne" : "lignes"}</td>
                       <td className="px-5 py-3.5 text-right"><button onClick={() => exportBon(bon)} aria-label={`Exporter le PDF du bon ${kind.toLocaleLowerCase("fr-FR")} ${bon.id}`} className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-2 text-[10px] font-bold text-slate-600 transition hover:border-brand hover:bg-blue-50 hover:text-brand"><FileDown size={14} /> PDF</button></td>
@@ -438,7 +644,7 @@ export default function BonsPage({ company = {}, profiles = {} }) {
         )}
       </div>
       {actionError && <p role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-xs text-red-700">{actionError}</p>}
-      {modalOpen && <BonModal stock={stock} stockLoading={stockLoading} onClose={() => setModalOpen(false)} onCreate={createBon} saving={saving} error={formError} />}
+      {modalOpen && <BonModal stock={stock} stockLoading={stockLoading} bons={bons} clients={clients} sites={sites} ascenseurs={ascenseurs} devis={devis} factures={factures} contrats={contrats} onClose={() => setModalOpen(false)} onCreate={createBon} saving={saving} error={formError} />}
     </section>
   );
 }
