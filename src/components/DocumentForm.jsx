@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { FileDown, FileText, LoaderCircle, Plus, ReceiptText, Trash2 } from "lucide-react";
+import { Eye, FileDown, FileText, LoaderCircle, Plus, Printer, ReceiptText, Trash2 } from "lucide-react";
 import CompanyLogo from "./CompanyLogo";
+import DocumentLayout, { DocumentTable } from "./DocumentLayout";
 
 const FIELD_CLASS = "mt-2 w-full min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm font-normal text-slate-800 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-50";
 
@@ -21,6 +22,7 @@ export default function DocumentForm({ profiles, company }) {
   const [generating, setGenerating] = useState(false);
   const [pdfResources, setPdfResources] = useState(null);
   const [pdfLoadError, setPdfLoadError] = useState("");
+  const [showPreview, setShowPreview] = useState(false);
   const subtotal = items.reduce((sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), 0);
   const discountAmount = subtotal * (Number(discountPercent) || 0) / 100;
   const taxableAmount = subtotal - discountAmount;
@@ -130,6 +132,7 @@ export default function DocumentForm({ profiles, company }) {
   }
 
   return (
+    <>
     <form noValidate onSubmit={createPdf} className="mx-auto w-full max-w-[1320px] space-y-5">
       <header className="relative isolate overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:flex sm:items-center sm:justify-between sm:px-7 sm:py-6">
         <div className="pointer-events-none absolute -right-10 -top-20 -z-10 h-48 w-48 rounded-full bg-indigo-50 blur-3xl" />
@@ -284,6 +287,9 @@ export default function DocumentForm({ profiles, company }) {
               {generating ? <LoaderCircle size={16} className="animate-spin" /> : <FileDown size={16} />}
               {generating ? "Génération en cours…" : pdfResources ? "Télécharger le PDF" : "Préparation du PDF…"}
             </button>
+            <button type="button" onClick={() => setShowPreview((visible) => !visible)} className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs font-semibold text-slate-600 transition hover:border-indigo-200 hover:text-indigo-700">
+              <Eye size={15} /> {showPreview ? "Masquer l’aperçu imprimable" : "Aperçu imprimable"}
+            </button>
             {pdfLoadError && <p role="alert" className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-[10px] leading-4 text-rose-700">{pdfLoadError}</p>}
             <p className="mt-3 text-center text-[10px] leading-4 text-slate-400">Document A4 · Mise en page avec retour à la ligne</p>
           </div>
@@ -291,5 +297,49 @@ export default function DocumentForm({ profiles, company }) {
       </aside>
       </div>
     </form>
+    {showPreview && (
+      <section className="document-print-root mx-auto mt-8 w-full max-w-[1320px]">
+        <div className="mb-3 flex justify-end print:hidden">
+          <button type="button" onClick={() => window.print()} className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-slate-700">
+            <Printer size={15} /> Imprimer l’aperçu
+          </button>
+        </div>
+        <DocumentLayout
+          company={pdfResources?.company || company}
+          documentType={kind}
+          reference={documentNumber}
+          dateEmission={new Date()}
+        >
+          <section className="mb-7 grid gap-5 sm:grid-cols-2">
+            <div>
+              <h2 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Facturé à</h2>
+              <p className="font-bold text-slate-900">{clientName || "Client à renseigner"}</p>
+              <p className="mt-1 whitespace-pre-line text-sm text-slate-600">{clientAddress || "Adresse à renseigner"}</p>
+            </div>
+            <div className="sm:text-right">
+              <p className="text-xs font-semibold text-slate-500">Date d’émission</p>
+              <p className="mt-1 text-sm font-bold text-slate-800">{new Date().toLocaleDateString("fr-FR")}</p>
+            </div>
+          </section>
+          <DocumentTable
+            caption="Détail des prestations"
+            columns={[
+              { key: "description", label: "Désignation" },
+              { key: "quantity", label: "Qté", align: "right" },
+              { key: "unitPrice", label: "Prix unitaire HT", align: "right", render: (value) => formatMoney(Number(value) || 0) },
+              { key: "lineTotal", label: "Total HT", align: "right", render: (_, item) => formatMoney((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)) },
+            ]}
+            rows={items}
+          />
+          <dl className="ml-auto mt-6 w-full max-w-sm space-y-2 border-t border-slate-200 pt-4 text-sm">
+            <div className="flex justify-between gap-4"><dt>Total HT</dt><dd className="text-right font-semibold tabular-nums">{formatMoney(subtotal)}</dd></div>
+            <div className="flex justify-between gap-4"><dt>Remise ({discountPercent || 0} %)</dt><dd className="text-right font-semibold tabular-nums">−{formatMoney(discountAmount)}</dd></div>
+            <div className="flex justify-between gap-4"><dt>TVA ({taxRate || 0} %)</dt><dd className="text-right font-semibold tabular-nums">{formatMoney(taxAmount)}</dd></div>
+            <div className="flex justify-between gap-4 border-t border-slate-300 pt-3 text-base font-extrabold text-slate-900"><dt>Total TTC</dt><dd className="text-right tabular-nums">{formatMoney(totalWithTax)}</dd></div>
+          </dl>
+        </DocumentLayout>
+      </section>
+    )}
+    </>
   );
 }

@@ -1,5 +1,6 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import { formatDateSafe } from "./dateUtils";
 
 const LAYOUT = {
   margin: 15,
@@ -54,13 +55,7 @@ function money(value, currency = "EUR") {
   }
 }
 
-function formatDate(value) {
-  if (!value) return "—";
-  if (typeof value?.toDate === "function") return value.toDate().toLocaleDateString("fr-FR");
-  if (value instanceof Date) return value.toLocaleDateString("fr-FR");
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? text(value) : parsed.toLocaleDateString("fr-FR");
-}
+const formatDate = formatDateSafe;
 
 function fileName(value, fallback = "document-tgi") {
   const normalized = text(value, fallback)
@@ -150,8 +145,8 @@ function drawHeader(doc, { title, reference, issueDate, company }) {
   doc.setTextColor(113, 128, 150);
   if (company.subtitle) doc.text(doc.splitTextToSize(text(company.subtitle), 71).slice(0, 2), companyLeft, 23);
 
+  const streetAddress = text(company.address).trim();
   const contacts = [
-    company.address,
     [company.phone, company.email].filter(Boolean).join(" · "),
     [company.ice && `ICE ${company.ice}`, company.rc && `RC ${company.rc}`].filter(Boolean).join(" · "),
     [company.patente && `Patente ${company.patente}`, company.siret && `SIRET ${company.siret}`].filter(Boolean).join(" · "),
@@ -161,6 +156,15 @@ function drawHeader(doc, { title, reference, issueDate, company }) {
   doc.setFontSize(6.5);
   doc.setTextColor(70, 84, 106);
   let contactY = 12;
+  if (streetAddress) {
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(55, 65, 81);
+    const addressLines = doc.splitTextToSize(streetAddress.toLocaleUpperCase("fr-FR"), rightWidth).slice(0, 1);
+    doc.text(addressLines, right, contactY, { align: "right" });
+    contactY += 3.1;
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(70, 84, 106);
+  }
   contacts.forEach((value) => {
     const lines = doc.splitTextToSize(text(value), rightWidth).slice(0, 1);
     if (contactY + lines.length * 3.1 <= 32) {
@@ -172,11 +176,11 @@ function drawHeader(doc, { title, reference, issueDate, company }) {
   doc.setDrawColor(224, 231, 240);
   doc.setLineWidth(0.4);
   doc.line(margin, 35, right, 35);
-  doc.setFillColor(246, 249, 253);
-  doc.setDrawColor(225, 233, 243);
-  doc.roundedRect(margin, 38, pageWidth - margin * 2, 18, 2, 2, "FD");
-  doc.setFillColor(45, 114, 213);
-  doc.roundedRect(margin, 38, 2, 18, 1, 1, "F");
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(margin, 38, pageWidth - margin * 2, 18, 1.5, 1.5, "FD");
+  doc.setFillColor(37, 99, 235);
+  doc.rect(margin, 38, 2.8, 18, "F");
   doc.setTextColor(23, 36, 58);
   doc.setFont("helvetica", "bold");
   const titleText = text(title, "DOCUMENT").toLocaleUpperCase("fr-FR");
@@ -184,18 +188,18 @@ function drawHeader(doc, { title, reference, issueDate, company }) {
   let titleLines = [];
   while (titleFontSize >= 8.5) {
     doc.setFontSize(titleFontSize);
-    titleLines = doc.splitTextToSize(titleText, 111);
+    titleLines = doc.splitTextToSize(titleText, 94);
     if (titleLines.length <= 2) break;
     titleFontSize -= 0.5;
   }
   titleLines = titleLines.slice(0, 2);
   doc.text(titleLines, margin + 7, titleLines.length > 1 ? 44 : 48);
-  doc.setDrawColor(218, 227, 238);
-  doc.setLineWidth(0.35);
-  doc.line(pageWidth - margin - 57, 41, pageWidth - margin - 57, 53);
+  doc.setDrawColor(229, 231, 235);
+  doc.setLineWidth(0.65);
+  doc.line(pageWidth - margin - 57, 40, pageWidth - margin - 57, 54);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(6.2);
-  doc.setTextColor(45, 75, 115);
+  doc.setTextColor(107, 114, 128);
   if (reference) doc.text("RÉFÉRENCE", right - 54, 43);
   if (issueDate) doc.text("ÉMIS LE", right, 43, { align: "right" });
   doc.setFont("helvetica", "normal");
@@ -417,11 +421,11 @@ function createReport({ title, reference, issueDate, company, signatures, filena
         valign: "middle",
       },
       headStyles: {
-        fillColor: [27, 55, 91],
-        textColor: [255, 255, 255],
+        fillColor: [243, 244, 246],
+        textColor: [71, 85, 105],
         fontSize: 8.5,
         fontStyle: "bold",
-        lineColor: [27, 55, 91],
+        lineColor: [222, 229, 238],
       },
       alternateRowStyles: { fillColor: [246, 249, 253] },
       theme: "grid",
@@ -440,6 +444,13 @@ function createReport({ title, reference, issueDate, company, signatures, filena
       pageBreak: "auto",
       showHead: "everyPage",
       didParseCell: (data) => {
+        const columnLabel = text(columns?.[data.column.index]).toLocaleLowerCase("fr-FR");
+        if (
+          data.section === "body"
+          && /(^qt[eé]$|quantit|prix|montant|total|solde|pay[eé]|amount)/i.test(columnLabel)
+        ) {
+          data.cell.styles.halign = "right";
+        }
         if (alignRight && data.section === "body" && data.row.index === rows.length - 1) {
           data.cell.styles.fillColor = [232, 241, 252];
           data.cell.styles.textColor = [23, 50, 84];
@@ -666,7 +677,7 @@ export function generateRecuPaiementPDF(paiement = {}, client = {}, options = {}
     ["Client", clientIdentity(client)],
     ["Adresse", client.address || client.adresse || "—"],
     ["Mode de paiement", paiement.paymentMethod || paiement.modePaiement || paiement.method || "—"],
-    ["Date de réception", formatDate(paiement.date || paiement.paidAt)],
+    ["Date de réception", formatDate(paiement.date || paiement.paidAt || paiement.createdAt)],
     ["Référence de transaction", paiement.transactionReference || paiement.transactionId || "—"],
   ], { columns: ["Information", "Détail"] });
   report.addSection("Règlement reçu", [

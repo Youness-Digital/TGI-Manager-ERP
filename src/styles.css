@@ -354,6 +354,50 @@ button:disabled {
   }
 }
 
+@media print {
+  @page {
+    size: A4;
+    margin: 14mm;
+  }
+
+  body {
+    min-width: 0;
+    background: #fff !important;
+  }
+
+  #root * {
+    visibility: hidden !important;
+  }
+
+  .document-print-root,
+  .document-print-root * {
+    visibility: visible !important;
+  }
+
+  .document-print-root {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+  }
+
+  .document-layout {
+    width: 100% !important;
+    max-width: none !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .document-table thead {
+    display: table-header-group;
+  }
+
+  .document-table tr {
+    break-inside: avoid;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { ArrowRight, CheckCircle2, LockKeyhole, LoaderCircle, Mail, ShieldCheck, Wrench } from "lucide-react";
-import { browserLocalPersistence, setPersistence, signInWithEmailAndPassword } from "firebase/auth";
+import { ArrowRight, CheckCircle2, KeyRound, LockKeyhole, LoaderCircle, Mail, ShieldCheck, Wrench } from "lucide-react";
+import { browserLocalPersistence, sendPasswordResetEmail, setPersistence, signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../firebase";
 import CompanyLogo from "./CompanyLogo";
 import InstallPrompt from "./InstallPrompt";
@@ -27,6 +27,8 @@ export default function LoginPage({ initialError = "" }) {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(initialError);
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetMessage, setResetMessage] = useState("");
 
   async function submit(event) {
     event.preventDefault();
@@ -39,6 +41,35 @@ export default function LoginPage({ initialError = "" }) {
       console.error("La connexion Firebase a échoué.", loginError);
       setError(getLoginError(loginError));
       setLoading(false);
+    }
+  }
+
+  async function resetPassword() {
+    const normalizedEmail = email.trim();
+    setError("");
+    setResetMessage("");
+    if (!normalizedEmail) {
+      setError("Saisissez d’abord votre adresse e-mail pour recevoir le lien de réinitialisation.");
+      return;
+    }
+
+    setResetLoading(true);
+    try {
+      await sendPasswordResetEmail(auth, normalizedEmail);
+      setResetMessage("Si un compte est associé à cette adresse, un e-mail de réinitialisation vient d’être envoyé. Vérifiez aussi vos courriers indésirables.");
+    } catch (resetError) {
+      console.error("L’envoi du lien de réinitialisation Firebase a échoué.", resetError);
+      if (resetError.code === "auth/invalid-email") {
+        setError("L’adresse e-mail n’est pas valide.");
+      } else if (resetError.code === "auth/too-many-requests") {
+        setError("Trop de tentatives. Patientez avant de demander un nouveau lien.");
+      } else if (resetError.code === "auth/network-request-failed") {
+        setError("Connexion impossible. Vérifiez votre accès à Internet puis réessayez.");
+      } else {
+        setError("Le lien de réinitialisation n’a pas pu être envoyé. Vérifiez la configuration Firebase ou contactez l’administrateur.");
+      }
+    } finally {
+      setResetLoading(false);
     }
   }
 
@@ -171,6 +202,19 @@ export default function LoginPage({ initialError = "" }) {
                 </span>
               </label>
 
+              <div className="-mt-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={resetPassword}
+                  disabled={resetLoading || loading}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-600 transition hover:text-indigo-800 disabled:cursor-wait disabled:opacity-60"
+                >
+                  {resetLoading ? <LoaderCircle size={13} className="animate-spin" /> : <KeyRound size={13} />}
+                  {resetLoading ? "Envoi du lien…" : "Mot de passe oublié ?"}
+                </button>
+              </div>
+
+              {resetMessage && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs leading-5 text-emerald-800">{resetMessage}</p>}
               {error && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm leading-5 text-rose-700">{error}</p>}
 
               <button type="submit" disabled={loading} className="group relative inline-flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-600 to-violet-600 px-4 py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-200 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-indigo-300/60 focus:outline-none focus:ring-4 focus:ring-indigo-200 disabled:cursor-not-allowed disabled:opacity-60">
